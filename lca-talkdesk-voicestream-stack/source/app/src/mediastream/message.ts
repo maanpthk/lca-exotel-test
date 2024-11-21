@@ -83,13 +83,13 @@ export interface ExotelMediaFormat {
     encoding: string;
     sample_rate: string;
     bit_rate: string;
-  }
+}
   
-  export interface ExotelCustomParameters {
+export interface ExotelCustomParameters {
     [key: string]: string;
-  }
+}
   
-  // src/mediastream/message.ts
+// src/mediastream/message.ts
 
 export type ExotelStartMessage = {
     event: StartEvent;

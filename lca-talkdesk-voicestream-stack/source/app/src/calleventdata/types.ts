@@ -85,8 +85,8 @@ export interface ExotelCallMetaData extends CallMetaData {
     customParameters?: {[key: string]: string};
     bitRate?: string;
     reason?: string;
-  }
+}
   
-  export interface ExotelSocketCallData extends SocketCallData {
+export interface ExotelSocketCallData extends SocketCallData {
     callMetadata: ExotelCallMetaData;
-  }
+}
