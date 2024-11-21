@@ -81,7 +81,6 @@ export type SocketCallData = {
     combinedStreamBlock: BlockStream2,
     ended: boolean,
 }
-
 export interface ExotelCallMetaData extends CallMetaData {
     customParameters?: {[key: string]: string};
     bitRate?: string;
@@ -91,5 +90,3 @@ export interface ExotelCallMetaData extends CallMetaData {
   export interface ExotelSocketCallData extends SocketCallData {
     callMetadata: ExotelCallMetaData;
   }
-
-  

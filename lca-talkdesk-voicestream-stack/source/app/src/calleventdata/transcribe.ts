@@ -25,16 +25,11 @@ import {
 } from '@aws-sdk/client-kinesis';
 
 import { 
-    CallStartEvent,
-    CallEndEvent, 
-    CallRecordingEvent,
-    AddTranscriptSegmentEvent,
-    AddCallCategoryEvent,
-    Uuid,
     CallMetaData,
     SocketCallData,
+    ExotelCallMetaData,
+    ExotelSocketCallData,
 } from './types';
-
 import {
     normalizeErrorForLogging
 } from '../utils';

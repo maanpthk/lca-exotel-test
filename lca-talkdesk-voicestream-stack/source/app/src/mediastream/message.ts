@@ -22,46 +22,7 @@ export const isStopEvent = (value: MediaStreamEventType): value is MediaStreamEv
 export const isMediaEvent = (value: MediaStreamEventType): value is MediaStreamEventType => (
     (value === 'media')
 );
-export interface ExotelMediaFormat {
-    encoding: string;
-    sample_rate: string;
-    bit_rate: string;
-  }
-  
-  export interface ExotelCustomParameters {
-    [key: string]: string;
-  }
-  
-  export interface ExotelStartMessage extends MediaStreamBase<StartEvent> {
-    sequence_number: number;
-    start: {
-      stream_sid: string;
-      call_sid: string;
-      account_sid: string;
-      from: string;
-      to: string;
-      custom_parameters: ExotelCustomParameters;
-      media_format: ExotelMediaFormat;
-    }
-  }
-  
-  export interface ExotelMediaMessage extends MediaStreamBase<MediaEvent> {
-    sequence_number: number;
-    media: {
-      chunk: number;
-      timestamp: string;
-      payload: string;
-    }
-  }
-  
-  export interface ExotelStopMessage extends MediaStreamBase<StopEvent> {
-    sequence_number: number; 
-    stop: {
-      call_sid: string;
-      account_sid: string;
-      reason: string;
-    }
-  }
+
 export type MediaStreamEventType = 
     | StartEvent 
     | StopEvent 
@@ -115,3 +76,46 @@ export type MediaStreamMessage =
     | MediaStreamStartMessage 
     | MediaStreamMediaMessage 
     | MediaStreamStopMessage;
+
+
+// Add Exotel specific interfaces
+export interface ExotelMediaFormat {
+    encoding: string;
+    sample_rate: string;
+    bit_rate: string;
+  }
+  
+  export interface ExotelCustomParameters {
+    [key: string]: string;
+  }
+  
+  export type ExotelStartMessage = MediaStreamBase<StartEvent> & {
+    sequence_number: number;
+    start: {
+      stream_sid: string;
+      call_sid: string;
+      account_sid: string;
+      from: string;
+      to: string;
+      custom_parameters: ExotelCustomParameters;
+      media_format: ExotelMediaFormat;
+    }
+  }
+  
+  export type ExotelMediaMessage = MediaStreamBase<MediaEvent> & {
+    sequence_number: number;
+    media: {
+      chunk: number;
+      timestamp: string;
+      payload: string;
+    }
+  }
+  
+  export type ExotelStopMessage = MediaStreamBase<StopEvent> & {
+    sequence_number: number; 
+    stop: {
+      call_sid: string;
+      account_sid: string;
+      reason: string;
+    }
+  }

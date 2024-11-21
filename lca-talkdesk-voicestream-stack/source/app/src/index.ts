@@ -22,15 +22,20 @@ import {
     isStartEvent,
     isStopEvent,
     isMediaEvent,
+    ExotelStartMessage,
+    ExotelMediaMessage,
+    ExotelStopMessage,
 } from './mediastream';
 
-import {  
-    CallMetaData, 
-    startTranscribe, 
+import {
+    CallMetaData,
+    startTranscribe,
     writeCallStartEvent,
     writeCallEndEvent,
     SocketCallData,
     writeCallRecordingEvent,
+    ExotelCallMetaData,
+    ExotelSocketCallData,
 } from './calleventdata';
 
 import {
@@ -63,7 +68,8 @@ const SAMPLE_RATE = parseInt(process.env['SAMPLE_RATE'] || '8000', 10);
 const s3Client = new S3Client({ region: AWS_REGION });
 
 // global variable to maintain state for active connections
-const socketMap = new Map<WebSocket, SocketCallData>();
+
+const socketMap = new Map<WebSocket, ExotelSocketCallData>();
 
 
 
