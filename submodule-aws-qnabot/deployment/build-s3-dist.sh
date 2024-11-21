@@ -1,6 +1,16 @@
 #!/bin/bash
-# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
-# SPDX-License-Identifier: Apache-2.0
+######################################################################################################################
+#  Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.                                                #
+#                                                                                                                    #
+#  Licensed under the Apache License, Version 2.0 (the "License"). You may not use this file except in compliance    #
+#  with the License. A copy of the License is located at                                                             #
+#                                                                                                                    #
+#      http://www.apache.org/licenses/LICENSE-2.0                                                                    #
+#                                                                                                                    #
+#  or in the 'license' file accompanying this file. This file is distributed on an 'AS IS' BASIS, WITHOUT WARRANTIES #
+#  OR CONDITIONS OF ANY KIND, express or implied. See the License for the specific language governing permissions    #
+#  and limitations under the License.                                                                                #
+######################################################################################################################
 
 # This script should be run from the repo's deployment directory
 # cd deployment
@@ -43,7 +53,7 @@ fi
 template_dir="$PWD"
 template_dist_dir="$template_dir/global-s3-assets"
 build_dist_dir="$template_dir/regional-s3-assets"
-source_dir="$template_dir/../"
+source_dir="$template_dir/../source"
 
 # Grabbing input parameters
 bucket_name="$1"
@@ -67,12 +77,6 @@ echo "[Init] Install dependencies and build"
 echo "------------------------------------------------------------------------------"
 cd $source_dir
 
-# workaround for Config file confusing make and node import of "config.js"
-# renaming Config temporarily
-if [[ -f "Config" ]]; then
-    mv Config Config_renamed
-fi
-
 npm install
 
 npm run configAwsSolutions
@@ -82,12 +86,6 @@ do_replace "config.json" %%SOLUTION_NAME%% $solution_name
 do_replace "config.json" %%VERSION%% $version
 
 npm run build
-
-# workaround for Config file confusing make and node import of "config.js"
-# by renaming back to Config
-if [[ -f "Config_renamed" ]]; then
-    mv Config_renamed Config
-fi
 
 echo "------------------------------------------------------------------------------"
 echo "[Init] Copying templates to global-s3-assets/"
@@ -100,12 +98,10 @@ cp build/templates/master.json $template_dist_dir/qnabot-on-aws-extended.templat
 
 # Copying nested templates to global assets directory for the benefit of cfn_nag finding the
 # nested templates
-# TODO: cfn_nag does not understand customer resources with properties with `.` (dot) which is valid. Example, "CR.botLocales". Plan to convert lex cutom resource
-#       to cloudformation lex resource. Due to cfn_nag limitation, we skip the `cp build/templates/examples.json $template_dist_dir/examples.template` which is just placed
-#       global-s3-assets folder for cfn_nag to find nested templates. Instead we run cfn_nag on examples.template manually locally after replace CR. with CR_ in
-#       next CloudFormation template.
+cp build/templates/examples.json $template_dist_dir/examples.template
 cp build/templates/export.json $template_dist_dir/export.template
 cp build/templates/import.json $template_dist_dir/import.template
+cp build/templates/sagemaker-embeddings.json $template_dist_dir/sagemaker-embeddings.template
 cp build/templates/testall.json $template_dist_dir/testall.template
 
 echo "------------------------------------------------------------------------------"

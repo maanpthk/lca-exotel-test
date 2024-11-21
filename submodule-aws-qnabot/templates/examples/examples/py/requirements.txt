@@ -1,2 +1,0 @@
-# requirements.txt
-boto3==1.10.46

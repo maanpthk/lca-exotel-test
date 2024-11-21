@@ -1,0 +1,11 @@
+#set ($root="https://${!context.domainName}/${!context.stage}")
+
+{
+    "bucket":"${ContentDesignerOutputBucket}",
+    "prefix":"status-import/",
+    "perpage":"$input.params('perpage')",
+    "token":"$input.params('token')",
+    "type":"imports",
+    "root":"$root"
+}
+

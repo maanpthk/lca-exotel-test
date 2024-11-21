@@ -1,0 +1,10 @@
+[run]
+omit =
+    test/*
+    .venv-*/*
+    */__init__.py
+    py_modules/*
+    .pytest_cache/*
+    __pycache__/*
+source =
+    .
