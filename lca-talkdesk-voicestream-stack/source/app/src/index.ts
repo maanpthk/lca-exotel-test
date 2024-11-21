@@ -14,9 +14,6 @@ import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 
 import {
     MediaStreamConnectedMessage,
-    MediaStreamMediaMessage,
-    MediaStreamStartMessage,
-    MediaStreamStopMessage,
     MediaStreamMessage,
     isConnectedEvent,
     isStartEvent,
@@ -58,7 +55,7 @@ const LOCAL_TEMP_DIR = process.env['LOCAL_TEMP_DIR'] || '/tmp/';
 const WS_LOG_LEVEL = process.env['WS_LOG_LEVEL'] || 'debug';
 const WS_LOG_INTERVAL = parseInt(process.env['WS_LOG_INTERVAL'] || '120', 10);
 const SHOULD_RECORD_CALL = process.env['SHOULD_RECORD_CALL'] || 'false';
-const TALKDESK_ACCOUNT_ID = process.env['TALKDESK_ACCOUNT_ID'] || '';
+
 
 // Source specific audio parameters
 // const CHUNK_SIZE_IN_MS = parseInt(process.env['CHUNK_SIZE_IN_MS'] || '20', 10);
