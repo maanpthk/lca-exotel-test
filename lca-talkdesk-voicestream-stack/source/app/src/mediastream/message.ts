@@ -89,33 +89,42 @@ export interface ExotelMediaFormat {
     [key: string]: string;
   }
   
-  export type ExotelStartMessage = MediaStreamBase<StartEvent> & {
+  // src/mediastream/message.ts
+
+export type ExotelStartMessage = {
+    event: StartEvent;
     sequence_number: number;
+    streamSid: string;
     start: {
-      stream_sid: string;
-      call_sid: string;
-      account_sid: string;
-      from: string;
-      to: string;
-      custom_parameters: ExotelCustomParameters;
-      media_format: ExotelMediaFormat;
+        stream_sid: string;
+        call_sid: string;
+        account_sid: string;
+        from: string;
+        to: string;
+        custom_parameters: ExotelCustomParameters;
+        media_format: ExotelMediaFormat;
     }
-  }
-  
-  export type ExotelMediaMessage = MediaStreamBase<MediaEvent> & {
+};
+
+export type ExotelMediaMessage = {
+    event: MediaEvent;
     sequence_number: number;
+    streamSid: string;
     media: {
-      chunk: number;
-      timestamp: string;
-      payload: string;
+        chunk: number;
+        track: string; // Add track property
+        timestamp: string;
+        payload: string;
     }
-  }
-  
-  export type ExotelStopMessage = MediaStreamBase<StopEvent> & {
-    sequence_number: number; 
+};
+
+export type ExotelStopMessage = {
+    event: StopEvent;
+    sequence_number: number;
+    streamSid: string;
     stop: {
-      call_sid: string;
-      account_sid: string;
-      reason: string;
+        call_sid: string;
+        account_sid: string;
+        reason: string;
     }
-  }
+};

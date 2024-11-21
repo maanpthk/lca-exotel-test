@@ -29,6 +29,12 @@ import {
     SocketCallData,
     ExotelCallMetaData,
     ExotelSocketCallData,
+    CallStartEvent,
+    CallEndEvent,
+    CallRecordingEvent,
+    AddTranscriptSegmentEvent,
+    AddCallCategoryEvent,
+    Uuid
 } from './types';
 import {
     normalizeErrorForLogging
