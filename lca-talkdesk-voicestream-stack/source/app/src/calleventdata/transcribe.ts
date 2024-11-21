@@ -170,7 +170,7 @@ export const startTranscribe = async (callMetaData: ExotelCallMetaData, audioInp
     // Add Exotel specific configurations
     const tsParams: transcriptionCommandInput<typeof isTCAEnabled> = {
         MediaSampleRateHertz: callMetaData.samplingRate,
-        MediaEncoding: callMetaData.customParameters?.encoding || 'pcm',
+        MediaEncoding: callMetaData.customParameters?.['encoding'] || 'pcm',
         AudioStream: transcribeInput()
     };
 
