@@ -339,7 +339,7 @@ const onStop = async (clientIP: string, ws: WebSocket, data: ExotelStopMessage):
     };
 
     await endCall(ws, callMetaData, socketData);
-}
+};
 
 const onWsClose = async (clientIP: string, ws:WebSocket, code: number): Promise<void> => {
     ws.close(code);

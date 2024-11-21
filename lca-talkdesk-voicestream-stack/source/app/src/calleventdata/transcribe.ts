@@ -27,7 +27,6 @@ import {
 
 import { 
     CallMetaData,
-    SocketCallData,
     ExotelCallMetaData,
     ExotelSocketCallData,
     CallStartEvent,
@@ -190,9 +189,9 @@ export const startTranscribe = async (callMetaData: ExotelCallMetaData, audioInp
             (tsParams as StartStreamTranscriptionCommandInput).LanguageOptions = TRANSCRIBE_LANGUAGE_OPTIONS.replace(/\s/g, '');
             if (TRANSCRIBE_PREFERRED_LANGUAGE !== 'None') {
                 (tsParams as StartStreamTranscriptionCommandInput).PreferredLanguage = TRANSCRIBE_PREFERRED_LANGUAGE as LanguageCode;
+            }
         }
-    }
-} else {
+    } else {
         tsParams.LanguageCode = TRANSCRIBE_LANGUAGE_CODE as LanguageCode;
     }
 
