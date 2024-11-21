@@ -1,0 +1,2062 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License").
+# You may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+---
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+
+Description: Amazon Transcribe Live Call Analytics with Agent Assist - LCA (v0.9.4) (SO9072)
+
+Parameters:
+
+  CallAudioSource:
+    Type: String
+    Default: Demo Asterisk PBX Server
+    AllowedValues:
+      - Demo Asterisk PBX Server
+      - Amazon Chime SDK Voice Connector (SIPREC)
+      - Genesys Cloud Audiohook Web Socket
+      - Talkdesk Voice Stream Websocket
+      - Amazon Connect Contact Lens
+      - Amazon Connect Kinesis Video Streams
+    Description: >
+      Choose whether to automatically install a demo Asterisk PBX server for easy standalone testing, an
+      Amazon Chime SDK Voice Connector to use for standards based SIPREC/NBR integration with your contact center,
+      a Web Socket interface to use for Audiohook integration with your Genesys Cloud CX contact center, 
+      integrate with Amazon Connect Contact Lens, or integrate with Amazon Connect Kinesis Video Streams.
+
+  CallAudioProcessor:
+    Type: String
+    Default: Amazon Chime SDK Call Analytics
+    AllowedValues:
+      - Amazon Chime SDK Call Analytics
+      - Call Transcriber Lambda
+    Description: >
+      If you choose Demo Asterisk PBX Server orAmazon Chime SDK Voice Connector (SIPREC), you can have 
+      Amazon Chime SDK Call Analytics ingest the audio and send it to Transcribe, or use the example LCA Call 
+      Processor Lambda. Enabling Amazon Chime SDK Call Analytics also allows you to also use Voice Analytics, 
+      such as Voice Tone Analysis and Speaker Search.
+
+  WebSocketAudioInput:
+    Type: String
+    Default: Enabled
+    AllowedValues:
+      - Enabled
+      - Disabled
+    Description: >
+      Enable or Disable Websocket interface for streaming audio input from microphone and browser tabs, or custom client.
+
+  CustomVoiceConnectorId:
+    Type: String
+    Default: ""
+    MaxLength: 50
+    Description: >
+      (Optional) The Voice Connector ID (not Name) of an existing Amazon Chime SDK Voice Connector. This Voice Connector will be used as the call audio source.
+      Used only when a call audio source with Amazon Chime SDK Voice Connector or Demo Asterisk PBX Server is selected.
+      Leave blank to automatically create new Amazon Chime SDK Voice Connector.
+
+  ChimeVoiceToneAnalysis:
+    Type: String
+    Default: Disabled
+    AllowedValues:
+      - Enabled
+      - Disabled
+    Description: >
+      Used only when a call audio source withAmazon Chime SDK Voice Connector is selected, and 
+      Amazon Chime SDK Call Analytics is used as a call processor.
+      A voice analytics feature that enables you to analyze caller voices for a positive, 
+      negative, or neutral tone. This is different than sentiment analysis, as it analyzes
+      the audio versus text. --NOTE-- In some jurisdictions, it may not be legal to use voice
+      analytics without the caller's consent. Please read 
+      https://docs.aws.amazon.com/chime-sdk/latest/dg/va-opt-out.html for more information.
+
+  DemoSoftphoneAllowedCidr:
+    Type: String
+    AllowedPattern: "( *|([0-9]{1,3}.){3}[0-9]{1,3}(/([0-9]|[1-2][0-9]|3[0-2])))"
+    Description: >
+      Used only when CallAudioSource is set to 'Demo Asterisk PBX Server'
+      CIDR block allowed by demo Asterisk server for soft phone registration.
+      Example: '198.51.100.36/32'
+
+  SiprecLambdaHookFunctionArn:
+    Default: ""
+    Type: String
+    AllowedPattern: "^(|arn:aws:lambda:.*)$"
+    Description: >
+      (Optional) Used only when CallAudioSource is set to 'Chime Voice Connector (SIPREC)' or
+      'Demo Asterisk PBX Server'. If present, the specified Lambda function can selectively
+      choose calls to process, toggle agent/caller streams, assign AgentId, and/or modify values
+      for CallId and displayed phone numbers.
+
+  SiprecAllowedCidrList:
+    Type: String
+    # yamllint disable rule:line-length
+    AllowedPattern: "( *|(([0-9]{1,3}.){3}[0-9]{1,3}(/([0-9]|[1-2][0-9]|3[0-2]))))(, *([0-9]{1,3}.){3}[0-9]{1,3}(/([0-9]|[1-2][0-9]|3[0-2])))*"
+    # yamllint enable rule:line-length
+    Description: >
+      Ignored if Install Demo Asterisk Server is true.
+      Comma delimited list of public CIDR blocks allowed by Amazon Chime SDK Voice Connector for SIPREC source hosts. Mask of /27 to /32 is allowed.
+      Example: '198.51.100.0/27, 203.0.113.128/27'
+
+  ConnectInstanceArn:
+    Type: String
+    AllowedPattern: "^(|arn:aws:connect:.*)$"
+    Description: >
+      Required when CallAudioSource is set to 'Amazon Connect Contact Lens' or 'Amazon Connect Kinesis Video Streams'.
+      Amazon Connect instance ARN of a working instance. Prerequisite: Agent queue and Real Time Contact Lens must be enabled, or 
+      Media Streams must be enabled.
+
+  TalkdeskAccountId:
+    Type: String
+    Default: ""
+    Description: >
+      (Optional) The Account identifier that created the Talkdesk stream. Used only when CallAudioSource is 
+      set to 'Talkdesk Voice Stream Websocket'. Provide the unique account identifier assigned to your 
+      Talkdesk account.
+
+  AgentAssistOption:
+    Type: String
+    Default: QnABot on AWS with new Bedrock knowledge base
+    AllowedValues:
+      - Disabled
+      - QnABot on AWS with new Bedrock knowledge base
+      - QnABot on AWS with existing Bedrock knowledge base
+      - QnABot on AWS with Bedrock LLM only (no knowledge base)
+      - Bring your own LexV2 bot
+      - Bring your own Lambda function
+    Description: >
+      Choose to enable optional Agent Assist capability, powered by a nested QnABot stack, your own LexV2 bot, or your own custom Lambda function.
+
+  BedrockKnowledgeBaseId:
+    Type: String
+    Default: ""
+    AllowedPattern: "^(|[0-9a-zA-Z]{10})$"
+    Description: >
+      If AgentAssistOption is 'QnABot on AWS with existing Bedrock knowledge base', provide the knowledge base
+      *Id* (not name) of an *existing* Bedrock knowledge base to be used for Meeting
+      Assist bot.
+
+  BedrockKnowledgeBaseS3BucketName:
+    Type: String
+    Default: ""
+    Description: >-
+      If AgentAssistOption is 'QnABot on AWS with new Bedrock knowledge base', provide the bucket 
+      name of an existing bucket with documents to ingest, or leave blank if you don't need an S3 data source. If you provide an S3 bucket name an S3 data
+      source will be created for you automatically.
+
+  BedrockKnowledgeBaseS3DocumentUploadFolderPrefix:
+    Type: String
+    Default: ""
+    Description: >-
+      If AgentAssistOption is 'QnABot on AWS with new Bedrock knowledge base', provide comma separated list of optional S3 prefixes 
+      with the paths to your source documents e.g. "prefix1/, prefix2/". If you leave blank, all documents in your S3 bucket will be scanned.
+
+  AgentAssistWebCrawlURLs:
+    Type: String
+    Default: https://en.wikipedia.org/wiki/Life_insurance, https://en.wikipedia.org/wiki/Mortgage_loan
+    Description: >-
+      Comma separated list of public web sites to crawl automatically for Agent Assist knowledge store
+
+  AgentAssistWebCrawlSyncScope:
+    Type: String
+    Default: DEFAULT
+    AllowedValues:
+      - "DEFAULT"
+      - "HOST_ONLY"
+      - "SUBDOMAINS"
+    Description: >-
+      The scope of what is crawled for your URLs.
+      Choose DEFAULT to limit to web pages that have the same host and the same initial path as the source URLs.
+      Choose HOST_ONLY to limit to web pages that have the same host as the source URLs.
+      Choose SUBDOMAINS to to include sub domains in addition to the host or primary domain.
+
+  AgentAssistExistingLexV2BotId:
+    Default: ""
+    Type: String
+    AllowedPattern: "^(|[0-9a-zA-Z]{10})$"
+    Description: >
+      Used only when AgentAssistOption is set to 'Bring your own LexV2 bot'.
+      Provide the Lex V2 *Bot Id* (not name) of an existing LexV2 bot to be used for Agent Assist."
+
+  AgentAssistExistingLexV2BotAliasId:
+    Default: ""
+    Type: String
+    AllowedPattern: "^(|[0-9a-zA-Z]{10})$"
+    Description: >
+      Used only when AgentAssistOption is set to 'Bring your own LexV2 bot'.
+      Provide the Lex V2 *Bot Alias Id* (not name) of an existing LexV2 bot alias to be used for Agent Assist."
+
+  AgentAssistExistingLambdaFunctionArn:
+    Default: ""
+    Type: String
+    AllowedPattern: "^(|arn:aws:lambda:.*)$"
+    Description: >
+      Used only when AgentAssistOption is set to 'Bring your own Lambda function'.
+      Provide the function ARN of an existing Lambda function to be used for Agent Assist."
+
+  AgentAssistLLMBedrockModelId:
+    Type: String
+    Default: anthropic.claude-3-haiku-20240307-v1:0
+    AllowedValues:
+      - "anthropic.claude-3-haiku-20240307-v1:0"
+      - "anthropic.claude-3-sonnet-20240229-v1:0"
+      - "anthropic.claude-3-5-sonnet-20240620-v1:0"
+    Description: Choose Bedrock modelId'
+
+  AgentAssistQnABotOpenSearchNodeCount:
+    Type: String
+    Default: 1
+    AllowedValues:
+      - 1
+      - 2
+      - 4
+    Description: >
+      Number of nodes in Meeting Assistant QnABot OpenSearch domain - '4' is recommended
+      for fault tolerant production deployments.
+
+  S3BucketName:
+    Type: String
+    Description: >
+      (Optional) Existing bucket where call recording files will be stored.
+      Leave blank to automatically create new bucket.
+    # yamllint disable rule:line-length
+    AllowedPattern: '( *|(?=^.{3,63}$)(?!^(\d+\.)+\d+$)(^(([a-z0-9]|[a-z0-9][a-z0-9\-]*[a-z0-9])\.)*([a-z0-9]|[a-z0-9][a-z0-9\-]*[a-z0-9])$))'
+    # yamllint enable rule:line-length
+
+  AudioFilePrefix:
+    Type: String
+    Default: lca-audio-recordings/
+    Description: The Amazon S3 prefix where the audio files will be saved (must end in "/")
+
+  CallAnalyticsPrefix:
+    Type: String
+    Default: lca-call-analytics/
+    Description: The Amazon S3 prefix where the post-call analytics files will be saved, when using analytics api mode (must end in "/")
+
+  IsPartialTranscriptEnabled:
+    Type: String
+    Default: "true"
+    Description: >-
+      Enable partial transcripts to receive low latency evolving transcriptions for each conversation turn. Set to false to process only the
+      final version of each conversation turn.
+    AllowedValues:
+      - "true"
+      - "false"
+
+  IsContentRedactionEnabled:
+    Type: String
+    Default: "false"
+    Description: >-
+      Enable content redaction from Amazon Transcribe transcription output. This is only used when
+      the 'en-US', 'en-AU', 'en-GB' or 'es-US' languages are selected in the TranscribeLanguageCode parameter.
+    AllowedValues:
+      - "true"
+      - "false"
+
+  TranscribeApiMode:
+    Type: String
+    Default: analytics
+    AllowedValues:
+      - standard
+      - analytics
+    Description: >-
+      Set the default API mode for Transcribe. 
+      Set to 'analytics' to use the Amazon Transcribe Real-time Call Analytics service, used to support 
+      call categories and alerts, call summarization, and PCA integration.
+
+  CategoryAlertRegEx:
+    Type: String
+    Default: .*
+    Description: >
+      If using the 'analytics' Transcribe API Mode, this regular expression will be used to show
+      an alert in red in the web user interface if it matches a call category. This defaults to 
+      matching all categories.
+
+  TranscribeContentRedactionType:
+    Type: String
+    Default: PII
+    Description: >-
+      Type of content redaction from Amazon Transcribe transcription output
+    AllowedValues:
+      - PII
+
+  TranscribeLanguageCode:
+    Type: String
+    Description: >-
+      Language code or language identification setting for Amazon Transcribe. NOTE:
+      Language identification must be used with TranscribeApiMode 'standard', and can't  be combined with custom language models, redaction.
+    Default: en-US
+    AllowedValues:
+      - identify-language
+      - identify-multiple-languages
+      - en-US
+      - es-US
+      - en-GB
+      - fr-CA
+      - fr-FR
+      - en-AU
+      - it-IT
+      - de-DE
+      - pt-BR
+      - ja-JP
+      - ko-KR
+      - zh-CN
+      - hi-IN
+      - th-TH
+
+  TranscribeLanguageOptions:
+    Type: String
+    Default: "en-US, es-US"
+    AllowedPattern: '^(?:\s*(?:en-US|es-US|en-GB|fr-CA|fr-FR|en-AU|it-IT|de-DE|pt-BR|ja-JP|ko-KR|zh-CN|hi-IN|th-TH)\s*(?:,\s*(?:en-US|es-US|en-GB|fr-CA|fr-FR|en-AU|it-IT|de-DE|pt-BR|ja-JP|ko-KR|zh-CN|hi-IN|th-TH)\s*)*)?$'
+    ConstraintDescription: >-
+      Unsupported language code or invalid syntax. Allowed values are: en-US, es-US,
+      en-GB, fr-CA, fr-FR, en-AU, it-IT, de-DE, pt-BR, ja-JP, ko-KR, zh-CN, hi-IN,
+      th-TH
+    Description: >-
+      When using language identification, specify two or more language codes, e.g.
+      "en-US, es-US" that represent the languages that may be  used in your meeting.
+      Including more than five is not recommended.  Enter only one language dialect
+      per language - e.g. 'en-US, en-AU' is not allowed.
+      Allowed values are: en-US, es-US, en-GB, fr-CA, fr-FR, en-AU, it-IT, de-DE,
+      pt-BR, ja-JP, ko-KR, zh-CN, hi-IN, th-TH
+
+  TranscribePreferredLanguage:
+    Type: String
+    Description: >-
+      Optionally select a preferred language when using language identification -
+      must be one of the languages entered for TranscribeLanguageOptions.
+    Default: None
+    AllowedValues:
+      - None
+      - en-US
+      - es-US
+      - en-GB
+      - fr-CA
+      - fr-FR
+      - en-AU
+      - it-IT
+      - de-DE
+      - pt-BR
+      - ja-JP
+      - ko-KR
+      - zh-CN
+      - hi-IN
+      - th-TH
+
+  TranscribePiiEntityTypes:
+    Type: String
+    Default: BANK_ACCOUNT_NUMBER,BANK_ROUTING,CREDIT_DEBIT_NUMBER,CREDIT_DEBIT_CVV,CREDIT_DEBIT_EXPIRY,PIN,EMAIL,ADDRESS,NAME,PHONE,SSN
+    Description: >-
+      Select the PII entity types you want to identify or redact. Remove the values that you don't want to redact from the default. DO NOT ADD CUSTOM VALUES HERE.
+
+  CustomVocabularyName:
+    Type: String
+    Default: ""
+    Description: >-
+      The name of the vocabulary to use when processing the transcription job. Leave blank if no
+      custom vocabulary to be used. If yes, the custom vocabulary must pre-exist in your account.
+      Multiple values are currently supported only when CallAudioSource is either 'Demo Asterisk PBX Server' or 
+      'Amazon Chime SDK Voice Connector (SIPREC)', AND CallAudioProcessor is 'Call Transcriber Lambda'.
+      Specify multiple custom vocabularies by separating them with a comma (,) and appending language 
+      code after each vocabulary name as '_<langcode>', e.g. 'MyVocab_en-US,MyVocab_es-US' to support using custom 
+      vocabularies for different languages set by a custom call initialization Lambda Hook.
+
+  CustomLanguageModelName:
+    Type: String
+    Default: ""
+    Description: >-
+      The name of the custom language model to use when processing the transcription job. Leave blank if no
+      custom language model is to be used. If specified, the custom language model must pre-exist in your account, 
+      match the Language Code selected above, and use the 'Narrow Band' base model.
+      Multiple values are currently supported only when CallAudioSource is either 'Demo Asterisk PBX Server' or 
+      'Amazon Chime SDK Voice Connector (SIPREC)', AND CallAudioProcessor is 'Call Transcriber Lambda'.
+      Specify multiple custom language models by separating them with a comma (,) and appending language 
+      code after each language model name as '_<langcode>', e.g. 'MyCLM_en-US, MyCLM_es-US' to support using custom 
+      language models for different languages set by a custom call initialization Lambda Hook.
+
+  IsSentimentAnalysisEnabled:
+    Type: String
+    Default: "true"
+    Description: >-
+      Enable sentiment analysis
+    AllowedValues:
+      - "true"
+      - "false"
+
+  SentimentNegativeScoreThreshold:
+    Type: Number
+    Default: 0.9
+    MinValue: 0
+    MaxValue: 1
+    Description: >-
+      Minimum negative sentiment confidence required to declare a phrase as having negative sentiment, in the range 0-1. 
+      Not applicable when using Contact Lens or Transcribe Call Analytics (as sentiment is pre-calculated).
+
+  SentimentPositiveScoreThreshold:
+    Type: Number
+    Default: 0.4
+    MinValue: 0
+    MaxValue: 1
+    Description: >-
+      Minimum positive sentiment confidence required to declare a phrase as having positive sentiment, in the range 0-1.
+      Not applicable when using Contact Lens or Transcribe Call Analytics (as sentiment is pre-calculated).
+
+  TranscriptLambdaHookFunctionArn:
+    Default: ""
+    Type: String
+    AllowedPattern: "^(|arn:aws:lambda:.*)$"
+    Description: >
+      (Optional) If present, the specified Lambda function is invoked by the LCA Call Event Processor Lambda function for each completed 
+      (non-partial) transcript segment. The function can capture and/or modify the text of the transcript, for example to implement custom
+      redaction logic, profanity filtering, or custom rules to highlight patterns in the transcript.
+
+  TranscriptLambdaHookFunctionNonPartialOnly:
+    Type: String
+    Default: "true"
+    AllowedValues:
+      - "true"
+      - "false"
+    Description: >
+      Specifies if Transcript Lambda Hook Function (if specified) is invoked for Non-Partial transcript segments only (true), or for
+      both Partial and Non-Partial transcript segments (false).
+
+  EndOfCallTranscriptSummary:
+    Default: "BEDROCK"
+    Type: String
+    AllowedValues:
+      - "DISABLED"
+      - "SAGEMAKER"
+      - "LAMBDA"
+      - "ANTHROPIC"
+      - "BEDROCK"
+
+    Description: >
+      Set to enable call summarization by a Large Language Model. The SAGEMAKER option uses a SageMaker endpoint with
+      the pretrained bart-large-cnn-samsum model with a ml.m5.xlarge instance type.  The LAMBDA option requires you 
+      to provide a function ARN below. The ANTHROPIC option is a third party service, and you must enter your Anthropic API key below.
+      BEDROCK option requires you to choose one of the supported model IDs from the 
+      provided list (SummaryBedrockModelId).
+
+  SummaryBedrockModelId:
+    Default: "anthropic.claude-3-haiku-20240307-v1:0"
+    Type: String
+    AllowedValues:
+      - "anthropic.claude-3-haiku-20240307-v1:0"
+      - "anthropic.claude-3-sonnet-20240229-v1:0"
+      - "anthropic.claude-3-5-sonnet-20240620-v1:0"
+
+    Description: >
+      If EndOfCallTranscriptSummary is BEDROCK, then choose a model ID from the list of supported models. 
+      Defaults to 'anthropic.claude-3-haiku-20240307-v1:0'
+
+  SummarizationSageMakerInitialInstanceCount:
+    Type: Number
+    MinValue: 0
+    Default: 1
+    Description: >
+      (Optional) If 'End Of Call Transcript Summary' is SAGEMAKER, provide initial instance count. Set to '0' to enable Serverless Inference (for cold-start delay tolerant deployments only).
+
+  SummarizationLLMThirdPartyApiKey:
+    Type: String
+    Description: "Optional: If EndOfCallTranscriptSummary is ANTHROPIC, enter the provider API Key. ** Data will leave your AWS account **"
+    Default: ""
+    NoEcho: true
+
+  EndOfCallLambdaHookFunctionArn:
+    Default: ""
+    Type: String
+    AllowedPattern: "^(|arn:aws:lambda:.*)$"
+    Description: >
+      (Optional) If 'End Of Call Transcript Summary' is LAMBDA, provide ARN for a Lambda function. The specified Lambda function is invoked by the LCA Call Event Processor Lambda function 
+      for end of call event. The function is passed en event with CallId as input.
+      This function can implement custom logic that is relevant to end of call processing, for example, creating a call summary.
+
+  StartOfCallLambdaHookFunctionArn:
+    Default: ""
+    Type: String
+    AllowedPattern: "^(|arn:aws:lambda:.*)$"
+    Description: >
+      (Optional) The specified Lambda function is invoked by the LCA Call Event Processor Lambda function for beginning or start of 
+      call event. This function can implement custom logic that is relevant to beginning of call processing, for example, retrieving
+      call summary details logged into a case in a CRM.
+
+  PostCallSummaryLambdaHookFunctionArn:
+    Default: ""
+    Type: String
+    AllowedPattern: "^(|arn:aws:lambda:.*)$"
+    Description: >
+      (Optional) The specified Lambda function is invoked by the LCA Call Event Processor Lambda function after the call summary is processed.
+      This function can implement custom logic that is relevant to post processing, for example, updating the call summary to a CRM system.
+
+  AdminEmail:
+    Type: String
+    Description: >-
+      Email address of admin user (e.g. jdoe@example.com) used for the API and web UI.
+      An initial temporary password will be automatically sent to this user via email.
+    AllowedPattern: '^[\w.+-]+@([\w-]+\.)+[\w-]{2,6}$'
+
+  AllowedSignUpEmailDomain:
+    Type: String
+    Default: ""
+    Description: >-
+      Email address domain (example.com) or comma separated list of email domains 
+      (example1.com, example2.com) allowed to signin and signup using the web UI.
+      If left empty, signup via the web UI is disabled and users will have to be created using
+      Cognito.
+    AllowedPattern: '^(|([\w-]+\.)+[\w-]{2,6}(, *([\w-]+\.)+[\w-]{2,6})*)$'
+
+  DemoAsteriskAgentAudioURL:
+    Type: String
+    Default: https://github.com/aws-samples/amazon-transcribe-live-call-analytics/raw/main/lca-chimevc-stack/demo-audio/agent.wav
+    Description: URL for audio (agent.wav) file download for demo Asterisk server.
+
+  CloudFrontPriceClass:
+    Type: String
+    Default: PriceClass_100
+    Description: >-
+      Specify the CloudFront price class. See https://aws.amazon.com/cloudfront/pricing/ for a
+      description of each price class.
+    AllowedValues:
+      - PriceClass_100
+      - PriceClass_200
+      - PriceClass_All
+    ConstraintDescription: >-
+      Allowed Price Classes PriceClass_100 PriceClass_200 and PriceClass_All
+
+  CloudFrontAllowedGeos:
+    Type: String
+    Default: ""
+    Description: >-
+      Specify a comma separated list of two letter country codes (uppercase ISO 3166-1) that are
+      allowed to access the web user interface via CloudFront. For example: US,CA. Leave empty if
+      you do not want geo restrictions to be applied.
+    AllowedPattern: "^(|[A-Z]{2}(,[A-Z]{2})*)$"
+    ConstraintDescription: >-
+      Comma separated list of uppercase two letter country codes or empty
+
+  PcaS3BucketName:
+    Type: String
+    Description: >
+      (Optional) Value of PCA stack "InputBucket". Effective if Transcribe API Mode parameter is 'analytics'.
+    # yamllint disable rule:line-length
+    AllowedPattern: '( *|(?=^.{3,63}$)(?!^(\d+\.)+\d+$)(^(([a-z0-9]|[a-z0-9][a-z0-9\-]*[a-z0-9])\.)*([a-z0-9]|[a-z0-9][a-z0-9\-]*[a-z0-9])$))'
+    # yamllint enable rule:line-length
+
+  PcaTranscriptsPrefix:
+    Type: String
+    Default: originalTranscripts/
+    Description: Value of PCA stack "InputBucketTranscriptPrefix".
+
+  PcaPlaybackAudioFilePrefix:
+    Type: String
+    Default: playbackAudio/
+    Description: Value of PCA stack "InputBucketPlaybackAudioPrefix".
+
+  PcaWebAppURL:
+    Type: String
+    AllowedPattern: '^(|https:\/\/.*)$'
+    Description: (Optional) Value of PCA stack "WebAppURL".
+
+  PcaWebAppCallPathPrefix:
+    Type: String
+    Default: dashboard/parsedFiles/
+    Description: PCA path prefix for call detail pages.
+
+  DynamoDbExpirationInDays:
+    Type: Number
+    Default: 90
+    Description: >-
+      Number of days to retain call records. Records will be automatically deleted from LCA after this time.
+
+  AudioRecordingExpirationInDays:
+    Type: Number
+    Description:
+      "Whole number of days after which audio recordings will be deleted
+      from the Recordings bucket."
+    Default: 90
+
+  UseExistingVPC:
+    Type: String
+    Default: "false"
+    AllowedValues:
+      - "true"
+      - "false"
+    Description: >-
+      Use an existing VPC for the solution instead of creating a new one. If set to
+      true, the VPC ID and subnets must be provided. DO NOT CHANGE VALUE WHEN UPDATING AN EXISTING STACK.
+
+  VPC:
+    Type: String
+    Description: >-
+      ID of the VPC to use for the solution. Required if UseExistingVPC is true. DO NOT CHANGE VALUE WHEN 
+      UPDATING AN EXISTING STACK.
+    AllowedPattern: "^(|vpc-[a-zA-Z0-9-]+)$"
+
+  PublicSubnet1:
+    Type: String
+    Description: >-
+      ID of the public subnet in Availability Zone 1. Required if UseExistingVPC is
+      true. DO NOT CHANGE VALUE WHEN UPDATING AN EXISTING STACK.
+    AllowedPattern: "^(|subnet-[a-zA-Z0-9-]+)$"
+
+  PublicSubnet2:
+    Type: String
+    Description: >-
+      ID of the public subnet in Availability Zone 2. Required if UseExistingVPC is
+      true. DO NOT CHANGE VALUE WHEN UPDATING AN EXISTING STACK.
+    AllowedPattern: "^(|subnet-[a-zA-Z0-9-]+)$"
+
+  PrivateSubnet1:
+    Type: String
+    Description: >-
+      ID of the private subnet in Availability Zone 1. Required if UseExistingVPC is
+      true. DO NOT CHANGE VALUE WHEN UPDATING AN EXISTING STACK.
+    AllowedPattern: "^(|subnet-[a-zA-Z0-9-]+)$"
+
+  PrivateSubnet2:
+    Type: String
+    Description: >-
+      ID of the private subnet in Availability Zone 2. Required if UseExistingVPC is
+      true. DO NOT CHANGE VALUE WHEN UPDATING AN EXISTING STACK.
+    AllowedPattern: "^(|subnet-[a-zA-Z0-9-]+)$"
+      
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Web UI Authentication
+        Parameters:
+          - AdminEmail
+          - AllowedSignUpEmailDomain
+      - Label:
+          default: Telephony Ingestion Options
+        Parameters:
+          - CallAudioSource
+          - CallAudioProcessor
+          - WebSocketAudioInput
+          - CustomVoiceConnectorId
+          - ChimeVoiceToneAnalysis
+          # - ChimeSpeakerSearch
+          - DemoSoftphoneAllowedCidr
+          - SiprecAllowedCidrList
+          - SiprecLambdaHookFunctionArn
+          - ConnectInstanceArn
+          - TalkdeskAccountId
+      - Label:
+          default: Agent Assist Options
+        Parameters:
+          - AgentAssistOption
+          - BedrockKnowledgeBaseId
+          - BedrockKnowledgeBaseS3BucketName
+          - BedrockKnowledgeBaseS3DocumentUploadFolderPrefix
+          - AgentAssistWebCrawlURLs
+          - AgentAssistWebCrawlSyncScope
+          - AgentAssistExistingLexV2BotId
+          - AgentAssistExistingLexV2BotAliasId
+          - AgentAssistExistingLambdaFunctionArn
+          - AgentAssistLLMBedrockModelId
+          - AgentAssistQnABotOpenSearchNodeCount
+      - Label:
+          default: Amazon S3 Configuration
+        Parameters:
+          - S3BucketName
+          - AudioFilePrefix
+          - CallAnalyticsPrefix
+      - Label:
+          default: Amazon Transcribe Configuration
+        Parameters:
+          - IsPartialTranscriptEnabled
+          - TranscribeApiMode
+          - IsContentRedactionEnabled
+          - TranscribeLanguageCode
+          - TranscribeLanguageOptions
+          - TranscribePreferredLanguage
+          - TranscribeContentRedactionType
+          - TranscribePiiEntityTypes
+          - CustomVocabularyName
+          - CustomLanguageModelName
+      - Label:
+          default: Transcript Event Processing Configuration
+        Parameters:
+          - IsSentimentAnalysisEnabled
+          - SentimentNegativeScoreThreshold
+          - SentimentPositiveScoreThreshold
+          - TranscriptLambdaHookFunctionArn
+          - TranscriptLambdaHookFunctionNonPartialOnly
+          - EndOfCallTranscriptSummary
+          - SummaryBedrockModelId
+          - SummarizationSageMakerInitialInstanceCount
+          - SummarizationLLMThirdPartyApiKey
+          - EndOfCallLambdaHookFunctionArn
+          - StartOfCallLambdaHookFunctionArn
+          - PostCallSummaryLambdaHookFunctionArn
+      - Label:
+          default: Download locations
+        Parameters:
+          - DemoAsteriskAgentAudioURL
+      - Label:
+          default: Amazon CloudFront Configuration
+        Parameters:
+          - CloudFrontPriceClass
+          - CloudFrontAllowedGeos
+      - Label:
+          default: Retention
+        Parameters:
+          - DynamoDbExpirationInDays
+          - AudioRecordingExpirationInDays
+      - Label:
+          default: User Experience
+        Parameters:
+          - CategoryAlertRegEx
+      - Label:
+          default: Post Call Analytics (PCA) Integration
+        Parameters:
+          - PcaS3BucketName
+          - PcaTranscriptsPrefix
+          - PcaPlaybackAudioFilePrefix
+          - PcaWebAppURL
+          - PcaWebAppCallPathPrefix
+      - Label:
+          default: VPC Configuration
+        Parameters:
+          - UseExistingVPC
+          - VPC
+          - PublicSubnet1
+          - PublicSubnet2
+          - PrivateSubnet1
+          - PrivateSubnet2
+
+    ParameterLabels:
+      CallAudioProcessor:
+        default: Call Audio Processor
+      ChimeVoiceToneAnalysis:
+        default: Chime Voice Tone Analysis
+      S3BucketName:
+        default: Call Audio Recordings Bucket Name
+      AudioFilePrefix:
+        default: Audio File Prefix
+      CallAnalyticsPrefix:
+        default: Call Analytics Output File Prefix
+      CustomVoiceConnectorId:
+        default: Amazon Chime SDK Voice Connector ID (existing)
+      AdminEmail:
+        default: Admin Email Address
+      AllowedSignUpEmailDomain:
+        default: Authorized Account Email Domain(s)
+      CallAudioSource:
+        default: Call Audio Source
+      WebSocketAudioInput:
+        default: Web Socket streaming audio input
+      DemoSoftphoneAllowedCidr:
+        default: Allowed CIDR Block for Demo Softphone
+      SiprecAllowedCidrList:
+        default: Allowed CIDR List for SIPREC Integration
+      SiprecLambdaHookFunctionArn:
+        default: Lambda Hook Function ARN for SIPREC Call Initialization (existing)
+      ConnectInstanceArn:
+        default: Amazon Connect instance ARN (existing)
+      TalkdeskAccountId:
+        default: Talkdesk Account Identifier for "Talkdesk Voice Stream Websocket" Call Audio Source
+      AgentAssistOption:
+        default: Enable Agent Assist
+      BedrockKnowledgeBaseId:
+        default: Bedrock Knowledge Base ID (existing)
+      BedrockKnowledgeBaseS3BucketName:
+        default: S3 bucket with knowledge base source documents (optional).
+      BedrockKnowledgeBaseS3DocumentUploadFolderPrefix:
+        default: S3 prefix(es) for your content (optional)
+      AgentAssistWebCrawlURLs:
+        default: Publicly accessible URLs for web crawling (optional)
+      AgentAssistWebCrawlSyncScope:
+        default: Web crawling sync scope
+      AgentAssistExistingLexV2BotId:
+        default: Agent Assist LexV2 BotId (existing)
+      AgentAssistExistingLexV2BotAliasId:
+        default: Agent Assist LexV2 Bot AliasId (existing)
+      AgentAssistExistingLambdaFunctionArn:
+        default: Agent Assist Lambda Function ARN (existing)
+      AgentAssistLLMBedrockModelId:
+        default: Agent Assist QnABot Bedrock ModelId
+      IsPartialTranscriptEnabled:
+        default: Enable Partial Transcripts
+      TranscribeApiMode:
+        default: Transcribe API mode
+      IsContentRedactionEnabled:
+        default: Enable Content Redaction for Transcripts
+      TranscribeLanguageCode:
+        default: Language for Transcription
+      TranscribeLanguageOptions:
+        default: Transcribe Language Options
+      TranscribePreferredLanguage:
+        default: Transcribe Preferred Language
+      TranscribeContentRedactionType:
+        default: Content Redaction Type for Transcription
+      TranscribePiiEntityTypes:
+        default: Transcription PII Redaction Entity Types
+      CustomVocabularyName:
+        default: Transcription Custom Vocabulary Name
+      CustomLanguageModelName:
+        default: Transcription Custom Language Model Name
+      DemoAsteriskAgentAudioURL:
+        default: Demo Asterisk Server Agent WAV File Download URL
+      IsSentimentAnalysisEnabled:
+        default: Enable Sentiment Analysis
+      SentimentNegativeScoreThreshold:
+        default: Sentiment Negative Score Threshold
+      SentimentPositiveScoreThreshold:
+        default: Sentiment Positive Score Threshold
+      TranscriptLambdaHookFunctionArn:
+        default: Lambda Hook Function ARN for Custom Transcript Segment Processing (existing)
+      TranscriptLambdaHookFunctionNonPartialOnly:
+        default: Lambda Hook Function Mode Non-Partial only
+      EndOfCallTranscriptSummary:
+        default: End of Call Transcript Summary
+      SummarizationSageMakerInitialInstanceCount:
+        default: Initial Instance Count for Summarization SageMaker Endpoint
+      SummarizationLLMThirdPartyApiKey:
+        default: End of Call Summarization LLM Third Party API Key
+      EndOfCallLambdaHookFunctionArn:
+        default: Lambda Hook Function ARN for Custom End of Call Processing (existing)
+      StartOfCallLambdaHookFunctionArn:
+        default: Lambda Hook Function ARN for Custom Start of Call Processing (existing)
+      PostCallSummaryLambdaHookFunctionArn:
+        default: Lambda Hook Function ARN for Custom Post Processing, after the Call Transcript Summary is processed (existing)
+      CloudFrontPriceClass:
+        default: CloudFront Price Class
+      CloudFrontAllowedGeos:
+        default: CloudFront Allowed Geographies
+      DynamoDbExpirationInDays:
+        default: Record Expiration In Days
+      AudioRecordingExpirationInDays:
+        default: Recording Expiration In Days
+      CategoryAlertRegEx:
+        default: Category Alert Regular Expression
+      PcaS3BucketName:
+        default: PCA InputBucket
+      PcaTranscriptsPrefix:
+        default: PCA InputBucket Transcript prefix
+      PcaPlaybackAudioFilePrefix:
+        default: PCA InputBucket Playback AudioFile prefix
+      PcaWebAppUrl:
+        default: PCA Web App URL
+      PcaWebAppCallPathPrefix:
+        default: PCA Web App Call Path Prefix
+      UseExistingVPC:
+        default: Use Existing VPC
+      VPC:
+        default: Existing VPC ID
+      PublicSubnet1:
+        default: Existing Public Subnet 1
+      PublicSubnet2:
+        default: Existing Public Subnet 2
+      PrivateSubnet1:
+        default: Existing Private Subnet 1
+      PrivateSubnet2:
+        default: Existing Private Subnet 2
+
+Conditions:
+  ShouldCreateRecordingBucket: !Equals [!Ref S3BucketName, ""]
+  ShouldInstallDemoAsteriskServer:
+    !Equals [!Ref CallAudioSource, "Demo Asterisk PBX Server"]
+  ShouldInstallChimeVCsiprec:
+    !Equals [!Ref CallAudioSource, "Amazon Chime SDK Voice Connector (SIPREC)"]
+  ShouldInstallChimeVCStack:
+    !Or [
+      !Condition ShouldInstallDemoAsteriskServer,
+      !Condition ShouldInstallChimeVCsiprec,
+    ]
+  ShouldInstallConnectKVSStack:
+    !Equals [!Ref CallAudioSource, "Amazon Connect Kinesis Video Streams"]
+  ShouldInstallGenesysAudiohookStack:
+    !Equals [!Ref CallAudioSource, "Genesys Cloud Audiohook Web Socket"]
+  ShouldInstallTalkdeskStack:
+    !Equals [!Ref CallAudioSource, "Talkdesk Voice Stream Websocket"]
+  ShouldInstallWebSocketStack: !Equals [!Ref WebSocketAudioInput, "Enabled"]
+  ShouldInstallConnectIntegrationStack:
+    !Equals [!Ref CallAudioSource, "Amazon Connect Contact Lens"]
+  ShouldUseChimeCallAnalytics:
+    !Equals [!Ref CallAudioProcessor, "Amazon Chime SDK Call Analytics"]
+  ShouldEnableVoiceToneAnalysis:
+    !And [
+      !Condition ShouldUseChimeCallAnalytics,
+      !Equals [!Ref ChimeVoiceToneAnalysis, "Enabled"],
+    ]
+  # ShouldEnableSpeakerSearch: !Equals [!Ref ChimeSpeakerSearch, 'Enabled']
+
+  ShouldEnableAgentAssist: !Not [!Equals [!Ref AgentAssistOption, "Disabled"]]
+  ShouldEnableLambdaAgentAssist:
+    !Equals [!Ref AgentAssistOption, "Bring your own Lambda function"]
+  ShouldEnableLexAgentAssist:
+    !And [
+      !Condition ShouldEnableAgentAssist,
+      !Not [!Condition ShouldEnableLambdaAgentAssist],
+    ]
+  ShouldBringYourOwnBot:
+    !Equals [!Ref AgentAssistOption, "Bring your own LexV2 bot"]
+  ShouldInstallAWSQnaBot:
+    !And [
+      !Condition ShouldEnableLexAgentAssist,
+      !Not [!Condition ShouldBringYourOwnBot],
+    ]
+  ShouldCreateBedrockKnowledgeBase:
+    !Equals [
+      !Ref AgentAssistOption,
+      "QnABot on AWS with new Bedrock knowledge base",
+    ]
+  ShouldUseExistingBedrockKnowledgeBase:
+    !Equals [
+      !Ref AgentAssistOption,
+      "QnABot on AWS with existing Bedrock knowledge base",
+    ]
+  ShouldUseBedrockKnowledgeBase:
+    !Or [
+      !Condition ShouldCreateBedrockKnowledgeBase,
+      !Condition ShouldUseExistingBedrockKnowledgeBase,
+    ]
+  ShouldUseBedrockForSummary:
+    !Equals [!Ref EndOfCallTranscriptSummary, "BEDROCK"]
+
+  ShouldCreateVPC: !Equals [!Ref UseExistingVPC, "false"]    
+
+Mappings:
+  TranscribeToComprehendLanguage:
+    identify-language:
+      Value: en
+    identify-multiple-languages:
+      Value: en
+    en-US:
+      Value: en
+    es-US:
+      Value: es
+    en-GB:
+      Value: en
+    fr-CA:
+      Value: fr
+    fr-FR:
+      Value: fr
+    en-AU:
+      Value: en
+    it-IT:
+      Value: it
+    de-DE:
+      Value: de
+    pt-BR:
+      Value: pt
+    ja-JP:
+      Value: ja
+    ko-KR:
+      Value: ko
+    zh-CN:
+      Value: zh
+    hi-IN:
+      Value: hi
+    th-TH:
+      Value: en # th not supported in comprehend
+
+  TranscribeToLexLocaleId:
+    identify-language:
+      Value: en_US
+    identify-multiple-languages:
+      Value: en_US
+    en-US:
+      Value: en_US
+    es-US:
+      Value: es_US
+    en-GB:
+      Value: en_GB
+    fr-CA:
+      Value: fr_CA
+    fr-FR:
+      Value: fr_FR
+    en-AU:
+      Value: en_AU
+    it-IT:
+      Value: it_IT
+    de-DE:
+      Value: de_DE
+    pt-BR:
+      Value: pt_BR
+    ja-JP:
+      Value: ja_JP
+    ko-KR:
+      Value: ko_KR
+    zh-CN:
+      Value: zh_CH
+    hi-IN:
+      Value: hi_IN
+    th-TH:
+      Value: th_TH
+
+Rules:
+  ConnectInstanceArn:
+    RuleCondition:
+      !Or [
+        !Equals [!Ref CallAudioSource, "Amazon Connect Contact Lens"],
+        !Equals [!Ref CallAudioSource, "Amazon Connect Kinesis Video Streams"],
+      ]
+    Assertions:
+      - Assert: !Not [!Equals [!Ref ConnectInstanceArn, ""]]
+        AssertDescription: ConnectInstanceArn is required when CallAudioSource is 'Amazon Connect Contact Lens' or 'Amazon Connect Kinesis Video Streams'
+
+  BedrockKnowledgeBaseId:
+    RuleCondition:
+      !Equals [
+        !Ref AgentAssistOption,
+        "QnABot on AWS with existing Bedrock knowledge base",
+      ]
+    Assertions:
+      - Assert: !Not [!Equals [!Ref BedrockKnowledgeBaseId, ""]]
+        AssertDescription: BedrockKnowledgeBaseId is required when AgentAssistOption is 'QnABot on AWS with existing Bedrock knowledge base'
+
+  AgentAssistExistingLexV2Bot:
+    RuleCondition: !Equals [!Ref AgentAssistOption, "Bring your own LexV2 bot"]
+    Assertions:
+      - Assert: !Not [!Equals [!Ref AgentAssistExistingLexV2BotId, ""]]
+        AssertDescription: AgentAssistExistingLexV2BotId is required when AgentAssistOption is 'Bring your own LexV2 bot'
+      - Assert: !Not [!Equals [!Ref AgentAssistExistingLexV2BotAliasId, ""]]
+        AssertDescription: AgentAssistExistingLexV2BotAliasId is required when AgentAssistOption is 'Bring your own LexV2 bot'
+
+  AgentAssistExistingLambdaFunctionArn:
+    RuleCondition:
+      !Equals [!Ref AgentAssistOption, "Bring your own Lambda function"]
+    Assertions:
+      - Assert: !Not [!Equals [!Ref AgentAssistExistingLambdaFunctionArn, ""]]
+        AssertDescription: AgentAssistExistingLambdaFunctionArn is required when AgentAssistOption is 'Bring your own Lambda function'
+
+Resources:
+  # Custom resource to enforce max length of StackName - prevent downstream failures
+  StacknameCheckFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: index.handler
+      Runtime: python3.12
+      InlineCode: |
+        import cfnresponse
+        import time
+        import json
+        def handler(event, context):
+            print(json.dumps(event))
+            input = event['ResourceProperties'].get('InputString', '')
+            max_length = int(event['ResourceProperties'].get('MaxLength', 0))
+            status = cfnresponse.SUCCESS
+            reason = f"Stack Name Length under {max_length} - OK"
+            if event['RequestType'] == "Create":
+              if len(input) > max_length:
+                status = cfnresponse.FAILED
+                reason = f"Stack Name length too long - max length {max_length} - FAILED"
+            else:
+              print(f"Request type is {event['RequestType']} - skipping")
+            cfnresponse.send(event, context, status, {}, reason=reason)
+
+  IsStacknameLengthOK:
+    Type: Custom::StacknameCheck
+    Properties:
+      ServiceToken: !GetAtt StacknameCheckFunction.Arn
+      InputString: !Ref "AWS::StackName"
+      MaxLength: 25
+
+  # Custom resource to validate parameters
+
+  ValidateParametersFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "bedrock:InvokeModel"
+                Resource: !Sub "arn:aws:bedrock:${AWS::Region}::foundation-model/*"
+          PolicyName: BedrockPolicy
+
+  ValidateParametersFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: index.handler
+      Runtime: python3.12
+      Role: !GetAtt ValidateParametersFunctionRole.Arn
+      Timeout: 60
+      InlineCode: |
+        import cfnresponse
+        import json
+        import boto3
+        import re
+        def is_model_available(modelId):
+          try:
+            client = boto3.client('bedrock-runtime')
+            prompt = "Why is the sky blue?"
+            if 'embed' in modelId:
+              body = {"inputText": prompt}
+            else:
+              body = {
+                  "anthropic_version": "bedrock-2023-05-31",
+                  "messages": [{"role": "user", "content": [{'type': 'text', 'text': prompt}]}],
+                  "max_tokens": 128
+              }
+            print(f"Testing model: {modelId} - {body}")
+            client.invoke_model(body=json.dumps(
+                body), modelId=modelId, accept='application/json', contentType='application/json')
+            print(f"The model '{modelId}' is available and enabled.")
+            return True
+          except Exception as e:
+            print(f"The model '{modelId}' is not available or not enabled. {e}")
+            return False
+        def isCvOrClmListAllowed(nameList, callAudioSource, callAudioProcessor):
+          names = nameList.split(',')
+          if len(names) == 1:
+            return True
+          if callAudioSource in ['Demo Asterisk PBX Server', 'Amazon Chime SDK Voice Connector (SIPREC)'] and callAudioProcessor in ['Call Transcriber Lambda']:
+            return True
+          return False
+        def isValidCvOrClmName(nameList):
+          names = nameList.split(',')
+          if len(names) == 1:
+              return True
+          # Define the expected language code pattern
+          lang_code_pattern = "_[a-z]{2}-[A-Z]{2}$"
+          for name in names:
+            if not re.search(lang_code_pattern, name):
+              print(f"Error: The name '{name}' is invalid. Each name should contain a language code suffix of the form '_<langcode>'.")
+              return False
+          return True
+        def handler(event, context):
+            print(json.dumps(event))
+            status = cfnresponse.SUCCESS
+            reason = f"Parameters Validated"
+            if event['RequestType'] != "Delete":
+              # Validate Transcribe Language options
+              transcribeApiMode = event['ResourceProperties'].get('TranscribeApiMode', '')
+              transcribeLanguageCode = event['ResourceProperties'].get('TranscribeLanguageCode', '')
+              transcribeLanguageOptions = event['ResourceProperties'].get('TranscribeLanguageOptions', '')
+              transcribePreferredLanguage = event['ResourceProperties'].get('TranscribePreferredLanguage', '')
+              customVocabularyName = event['ResourceProperties'].get('CustomVocabularyName', '')
+              customLanguageModelName = event['ResourceProperties'].get('CustomLanguageModelName', '')
+              callAudioSource = event['ResourceProperties'].get('CallAudioSource', '')
+              callAudioProcessor = event['ResourceProperties'].get('CallAudioProcessor', '')
+              if transcribeApiMode == 'analytics':
+                allowedTCALanguages = ['en-US', 'en-GB', 'es-US', 'fr-CA', 'fr-FR', 'en-AU',  'it-IT', 'de-DE', 'pt-BR']
+                if transcribeLanguageCode not in allowedTCALanguages:
+                  status = cfnresponse.FAILED
+                  reason = f"Selected Transcribe Language '{transcribeLanguageCode}' is not supported by Transcribe Call Analytics - must be one of: {allowedTCALanguages}. Please choose a supported language or set Transcribe API mode to 'standard'"
+              if customVocabularyName:
+                if not isCvOrClmListAllowed(customVocabularyName, callAudioSource, callAudioProcessor):
+                  status = cfnresponse.FAILED
+                  reason = f"CustomVocabularyName '{customVocabularyName}' is not valid for CallAudioSource '{callAudioSource}' and CallAudioProcessor '{callAudioProcessor}' . Multiple values are currently supported only when callAudioSource is either 'Demo Asterisk PBX Server' or 'Amazon Chime SDK Voice Connector (SIPREC)', AND CallAudioProcessor is 'Call Transcriber Lambda'."
+                elif not isValidCvOrClmName(customVocabularyName):
+                  status = cfnresponse.FAILED
+                  reason = f"CustomVocabularyName '{customVocabularyName}' is not valid. When a list is provided, each name in the list must have a valid language code suffix, eg 'MyName_en-US, MyName_es-US'"
+              if customLanguageModelName:
+                if not isCvOrClmListAllowed(customLanguageModelName, callAudioSource, callAudioProcessor):
+                  status = cfnresponse.FAILED
+                  reason = f"CustomLanguageModelName '{customLanguageModelName}' is not valid for CallAudioSource '{callAudioSource}' and CallAudioProcessor '{callAudioProcessor}' . Multiple values are currently supported only when callAudioSource is either 'Demo Asterisk PBX Server' or 'Amazon Chime SDK Voice Connector (SIPREC)', AND CallAudioProcessor is 'Call Transcriber Lambda'."
+                elif not isValidCvOrClmName(customLanguageModelName):
+                  status = cfnresponse.FAILED
+                  reason = f"CustomLanguageModelName '{customLanguageModelName}' is not valid. When a list is provided, each name in the list must have a valid language code suffix, eg 'MyName_en-US, MyName_es-US'"
+              if transcribeLanguageCode in ['identify-language', 'identify-multiple-languages']:
+                if customVocabularyName:
+                  status = cfnresponse.FAILED
+                  reason = f"CustomVocabularyName cannot be set when TranscribeLanguageCode is '{transcribeLanguageCode}'"
+                elif customLanguageModelName:
+                  status = cfnresponse.FAILED
+                  reason = f"CustomLanguageModelName cannot be set when TranscribeLanguageCode is '{transcribeLanguageCode}'"
+                elif transcribeLanguageOptions == '':
+                  status = cfnresponse.FAILED
+                  reason = f"At least two languages must be provided for TranscribeLanguageOptions when using language identification"
+                else:
+                  # only one language dialect per language
+                  languages = set()
+                  lang_codes = [l.strip() for l in transcribeLanguageOptions.split(',')]
+                  for lang_code in lang_codes:
+                    lang = lang_code.split('-')[0]
+                    if lang in languages:
+                      status = cfnresponse.FAILED
+                      reason = f"TranscribeLanguageOptions has a duplicate entry for '{lang}' - only one language dialect per language is allowed."
+                    languages.add(lang)
+                  # transcribePreferredLanguage must be in transcribeLanguageOptions
+                  if not transcribePreferredLanguage == 'None':
+                    if not transcribePreferredLanguage in lang_codes:
+                      status = cfnresponse.FAILED
+                      reason = f"TranscribePreferredLanguage '{transcribePreferredLanguage}' is not in TranscribeLanguageOptions '{transcribeLanguageOptions}'"
+              # Validate Bedrock model access
+              failedModels = []
+              requiredmodels = event['ResourceProperties'].get('BedrockModelIds', [])
+              for modelId in requiredmodels: 
+                if not is_model_available(modelId):
+                  failedModels.append(modelId)
+              if failedModels:
+                status = cfnresponse.FAILED
+                reason = f"Model(s) '{failedModels}' not available or not enabled. Check that Amazon Bedrock is available in your region, and that required models ('{requiredmodels}') are activated in your Amazon Bedrock account"
+            else:
+              print(f"Request type is {event['RequestType']} - skipping")
+            cfnresponse.send(event, context, status, {}, reason=reason)
+      LoggingConfig:
+        LogGroup:
+          Ref: ValidateParametersFunctionLogGroup
+    Metadata:
+      cfn_nag:
+        rules_to_suppress:
+          - id: W89
+            reason: Customer can use VPC if desired
+          - id: W92
+            reason: Customer can choose reserved concurrency based on their requirement.
+    DependsOn:
+      - ValidateParametersFunctionLogGroup
+
+  ValidateParametersFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      RetentionInDays: 30
+
+  ValidateParameters:
+    Type: Custom::ValidateParameters
+    Properties:
+      ServiceToken: !GetAtt ValidateParametersFunction.Arn
+      TranscribeApiMode: !Ref TranscribeApiMode
+      TranscribeLanguageCode: !Ref TranscribeLanguageCode
+      TranscribeLanguageOptions: !Ref TranscribeLanguageOptions
+      TranscribePreferredLanguage: !Ref TranscribePreferredLanguage
+      CustomVocabularyName: !Ref CustomVocabularyName
+      CustomLanguageModelName: !Ref CustomLanguageModelName
+      CallAudioSource: !Ref CallAudioSource
+      CallAudioProcessor: !Ref CallAudioProcessor
+      BedrockModelIds:
+        - !If
+          - ShouldUseBedrockForSummary
+          - !Ref SummaryBedrockModelId # Call summarization
+          - !Ref AWS::NoValue
+        - !If
+          - ShouldInstallAWSQnaBot
+          - !Ref AgentAssistLLMBedrockModelId # Agent assistant
+          - !Ref AWS::NoValue
+        - !If
+          - ShouldInstallAWSQnaBot
+          - "amazon.titan-embed-text-v2:0" # Agent Assistant (KB embedding) & QnABot
+          - !Ref AWS::NoValue
+
+  ##########################################################################
+  # Resources shared by multiple nested stacks
+  ##########################################################################
+  CallDataStream:
+    Type: AWS::Kinesis::Stream
+    Properties:
+      RetentionPeriodHours: 24
+      StreamModeDetails:
+        StreamMode: ON_DEMAND
+      StreamEncryption:
+        EncryptionType: KMS
+        KeyId: alias/aws/kinesis
+
+  # Initialise LCASettingsParameter as empty (so it never gets replaced)
+  # and use CR UpdateLCASettingsFunction to add/update values
+  LCASettingsParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Type: String
+      Value: "{}"
+
+  UpdateLCASettingsFunctionRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action: "sts:AssumeRole"
+            Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+        Version: 2012-10-17
+      ManagedPolicyArns:
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+      Policies:
+        - PolicyName: updateSSMStore
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                  - ssm:PutParameter
+                Resource:
+                  - !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${LCASettingsParameter}"
+
+  UpdateLCASettingsFunction:
+    Type: "AWS::Lambda::Function"
+    Properties:
+      Role: !GetAtt UpdateLCASettingsFunctionRole.Arn
+      Handler: index.handler
+      Runtime: python3.12
+      Timeout: 900
+      Code:
+        ZipFile: |
+          import boto3
+          import cfnresponse
+          import json
+          ssm = boto3.client('ssm')
+          def updateSSMParameter(props):
+            parameterName = props['LCASettingsName']
+            parameterValues = props['LCASettingsKeyValuePairs']
+            response = ssm.get_parameter(Name=parameterName)
+            settingsJSON = response['Parameter']['Value']
+            settings = json.loads(settingsJSON)
+            print(f"Existing settings: {settings}")
+            for key, value in parameterValues.items():
+              settings[key] = value
+            print(f"Updated settings: {settings}")
+            newSettingsJSON = json.dumps(settings)
+            ssm.put_parameter(Name=parameterName, Value=newSettingsJSON, Overwrite=True)
+                        
+          def handler(event, context):        
+            print(json.dumps(event))
+            status = cfnresponse.SUCCESS
+            responseData = {}
+            reason = "Success"
+            props = event["ResourceProperties"]
+            if event['RequestType'] != 'Delete':
+              try:
+                updateSSMParameter(props)
+              except Exception as e:
+                print(e)
+                reason = f"Exception thrown: {e}"
+                status = cfnresponse.FAILED              
+            cfnresponse.send(event, context, status, responseData, reason=reason)
+
+    Metadata:
+      cfn_nag:
+        rules_to_suppress:
+          - id: W89
+            reason: Customer can use VPC if desired
+          - id: W92
+            reason: Customer can choose reserved concurrency based on their requirement.
+          - id: W58
+            reason: Managed policy already provides access to CloudWatch logs.
+
+  UpdateLCASettingsWithInitialValues:
+    Type: AWS::CloudFormation::CustomResource
+    Properties:
+      ServiceToken: !GetAtt UpdateLCASettingsFunction.Arn
+      LCASettingsName: !Ref LCASettingsParameter
+      LCASettingsKeyValuePairs:
+        CategoryAlertRegex: !Ref CategoryAlertRegEx
+        EnableVoiceToneAnalysis: !If
+          - ShouldEnableVoiceToneAnalysis
+          - "true"
+          - "false"
+    UpdateReplacePolicy: Delete
+    DeletionPolicy: Delete
+
+  ## BUCKET TO STORE STEREO RECORDINGS
+  RecordingsBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Condition: ShouldCreateRecordingBucket
+    Properties:
+      AccessControl: LogDeliveryWrite
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: ObjectWriter
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      LifecycleConfiguration:
+        Rules:
+          - Id: RuleRetention
+            Status: Enabled
+            Prefix: ""
+            ExpirationInDays: !Ref AudioRecordingExpirationInDays
+
+  RecordingsBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Condition: ShouldCreateRecordingBucket
+    Properties:
+      Bucket: !Ref RecordingsBucket
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Action:
+              - "s3:*"
+            Effect: "Deny"
+            Principal: "*"
+            Resource:
+              - !GetAtt RecordingsBucket.Arn
+              - !Sub "${RecordingsBucket.Arn}/*"
+            Condition:
+              Bool:
+                "aws:SecureTransport": false
+
+  ToJSONFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: index.handler
+      Runtime: python3.12
+      InlineCode: |
+        import cfnresponse
+        import json
+        def handler(event, context):
+            print(json.dumps(event))
+            status = cfnresponse.SUCCESS
+            reason = "Sucessful"
+            result = {}
+            if event['RequestType'] in ["Create", "Update"]:
+              output = {}
+              for k, v in event['ResourceProperties'].items():
+                if k != "ServiceToken":
+                  output[k] = v
+              outputJSON = json.dumps(output)
+              result = {"Output": outputJSON}
+            else:
+              print(f"Request type is {event['RequestType']} - skipping")
+            cfnresponse.send(event, context, status, result, reason=reason)
+
+  QNABOT:
+    Type: AWS::CloudFormation::Stack
+    Condition: ShouldInstallAWSQnaBot
+    DependsOn:
+      - IsStacknameLengthOK
+      - ValidateParameters
+    Properties:
+      # yamllint disable rule:line-length
+      TemplateURL: https://s3.<REGION_TOKEN>.amazonaws.com/<ARTIFACT_BUCKET_TOKEN>/<ARTIFACT_PREFIX_TOKEN>/aws-qnabot/templates/qnabot-main.json
+      # yamllint enable rule:line-length
+      Parameters:
+        Email: !Ref AdminEmail
+        Username: "Admin"
+        OpenSearchNodeCount: !Ref AgentAssistQnABotOpenSearchNodeCount
+        OpenSearchFineGrainAccessControl: "FALSE"
+        LexV2BotLocaleIds:
+          !FindInMap [
+            TranscribeToLexLocaleId,
+            !Ref TranscribeLanguageCode,
+            Value,
+          ]
+        BootstrapBucket: <ARTIFACT_BUCKET_TOKEN>
+        BootstrapPrefix: <ARTIFACT_PREFIX_TOKEN>/aws-qnabot
+        InstallLexResponseBots: "false"
+        EmbeddingsApi: "BEDROCK"
+        EmbeddingsBedrockModelId: "amazon.titan-embed-text-v2"
+        LLMApi: "DISABLED"  # LMA configures its own KB/QBusiness LambdaHooks
+        LogRetentionPeriod: 30
+
+  LLMTEMPLATESTACK:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - IsStacknameLengthOK
+      - ValidateParameters
+    Properties:
+      TemplateURL: https://s3.<REGION_TOKEN>.amazonaws.com/<ARTIFACT_BUCKET_TOKEN>/<ARTIFACT_PREFIX_TOKEN>/lca-llm-template-setup-stack/llm-template-setup.yaml
+
+  AISTACK:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - IsStacknameLengthOK
+      - ValidateParameters
+    Properties:
+      # yamllint disable rule:line-length
+      TemplateURL: https://s3.<REGION_TOKEN>.amazonaws.com/<ARTIFACT_BUCKET_TOKEN>/<ARTIFACT_PREFIX_TOKEN>/lca-ai-stack/<VERSION_TOKEN>/template.yaml
+      # yamllint enable rule:line-length
+      Parameters:
+        LCAStackName: !Ref AWS::StackName
+        EnableVoiceToneAnalysis: !If
+          - ShouldEnableVoiceToneAnalysis
+          - "true"
+          - "false"
+        CallAudioSource: !Ref CallAudioSource
+        S3BucketName: !If
+          - ShouldCreateRecordingBucket
+          - !Ref RecordingsBucket
+          - !Ref S3BucketName
+        AdminEmail: !Ref AdminEmail
+        AllowedSignUpEmailDomain: !Ref AllowedSignUpEmailDomain
+        CategoryAlertRegEx: !Ref CategoryAlertRegEx
+        ComprehendLanguageCode:
+          !FindInMap [
+            TranscribeToComprehendLanguage,
+            !Ref TranscribeLanguageCode,
+            Value,
+          ]
+        IsSentimentAnalysisEnabled: !Ref IsSentimentAnalysisEnabled
+        SentimentNegativeScoreThreshold: !Ref SentimentNegativeScoreThreshold
+        SentimentPositiveScoreThreshold: !Ref SentimentPositiveScoreThreshold
+        CloudFrontPriceClass: !Ref CloudFrontPriceClass
+        CloudFrontAllowedGeos: !Ref CloudFrontAllowedGeos
+        IsLexAgentAssistEnabled: !If
+          - ShouldEnableLexAgentAssist
+          - true
+          - false
+        IsLambdaAgentAssistEnabled: !If
+          - ShouldEnableLambdaAgentAssist
+          - true
+          - false
+        AgentAssistExistingLambdaFunctionArn: !Ref AgentAssistExistingLambdaFunctionArn
+        DynamoDbExpirationInDays: !Ref DynamoDbExpirationInDays
+        TranscriptLambdaHookFunctionArn: !Ref TranscriptLambdaHookFunctionArn
+        TranscriptLambdaHookFunctionNonPartialOnly: !Ref TranscriptLambdaHookFunctionNonPartialOnly
+        EndOfCallTranscriptSummary: !Ref EndOfCallTranscriptSummary
+        BedrockModelId: !Ref SummaryBedrockModelId
+        SummarizationSageMakerInitialInstanceCount: !Ref SummarizationSageMakerInitialInstanceCount
+        SummarizationLLMThirdPartyApiKey: !Ref SummarizationLLMThirdPartyApiKey
+        EndOfCallLambdaHookFunctionArn: !Ref EndOfCallLambdaHookFunctionArn
+        StartOfCallLambdaHookFunctionArn: !Ref StartOfCallLambdaHookFunctionArn
+        PostCallSummaryLambdaHookFunctionArn: !Ref PostCallSummaryLambdaHookFunctionArn
+        LLMPromptTemplateTableName: !GetAtt LLMTEMPLATESTACK.Outputs.LLMPromptTemplateTableName
+        CallDataStream: !Ref CallDataStream
+        CallDataStreamArn: !GetAtt CallDataStream.Arn
+        LCASettingsParameterName: !Ref LCASettingsParameter
+
+  BEDROCKKB:
+    Type: AWS::CloudFormation::Stack
+    Condition: ShouldCreateBedrockKnowledgeBase
+    DependsOn:
+      - IsStacknameLengthOK
+      - ValidateParameters
+    Properties:
+      TemplateURL: https://s3.<REGION_TOKEN>.amazonaws.com/<ARTIFACT_BUCKET_TOKEN>/<ARTIFACT_PREFIX_TOKEN>/lca-bedrockkb-stack/template.yaml
+      Parameters:
+        pKnowledgeBaseBucketName: !Ref BedrockKnowledgeBaseS3BucketName
+        pInputDocumentUploadFolderPrefix: !Ref BedrockKnowledgeBaseS3DocumentUploadFolderPrefix
+        pWebCrawlerURLs: !Ref AgentAssistWebCrawlURLs
+        pWebCrawlerScope: !Ref AgentAssistWebCrawlSyncScope
+
+  # Format nested JSON strings before nesting them in QnABotSettings in AGENTASSISTSETUP
+  SettingsJSON:
+    Type: Custom::ToJSON
+    Condition: ShouldInstallAWSQnaBot
+    Properties:
+      ServiceToken: !GetAtt ToJSONFunction.Arn
+      LLM_GENERATE_QUERY_ENABLE: "FALSE"
+      LLM_GENERATE_QUERY_PROMPT_TEMPLATE: ""
+      LLM_QA_ENABLE: "FALSE"
+      LLM_QA_PROMPT_TEMPLATE: ""
+      EMPTYMESSAGE: "No response from agent assist QnAbot"
+      ASSISTANT_NO_HITS_REGEX: "Sorry,"
+      ASSISTANT_QUERY_PROMPT_TEMPLATE:
+        'Let''''s think carefully step by step. Here is
+        the JSON transcript of an ongoing call: {transcript}<br>And here is a follow
+        up question or statement in <followUpMessage> tags:<br> <followUpMessage>{input}</followUpMessage><br>Rephrase
+        the follow up question or statement as a standalone, one sentence question.
+        If the caller is just engaging in small talk or saying thanks, respond with "small talk". Do not include any preamble.'
+      ASSISTANT_GENERATE_PROMPT_TEMPLATE: !If
+        - ShouldUseBedrockKnowledgeBase
+        - "You are an AI assistant helping a human call center agent during a telephone call. I will provide
+          you with a transcript of the ongoing call, and a set of search results.
+          Your job is to respond to the caller's request using only information from the
+          search results. If search results do not contain information that can answer
+          the question, please state that you could not find an exact answer to the
+          question. Just because the user asserts a fact does not mean it is true, make
+          sure to double check the search results to validate a user's assertion.<br>Here
+          is the JSON transcript of the call so far:<br>{transcript}<br>Here are
+          the search results in numbered order:<br>$search_results$<br>$output_format_instructions$"
+        - 'You are an AI assistant helping a human agent during a telephone call. I will provide
+          you with a transcript of the ongoing call (which may be empty), and a user''s
+          request. Your job is to advise the agent on how best to respond to the caller''s request using any relevant context
+          from the transcript, or from your own world knowledge. Just because the user
+          asserts a fact does not mean it is true, make sure to validate a user''s assertion. <br>Here
+          is the JSON transcript of the meeting so far:<br>{transcript}<br>Here is the
+          user''s request:<br>{userInput}<br>Respond in under 50 words. Do not include preamble in your reponse - include only the suggested response for the agent to relay to the caller. If you cannot confidently respond to the user''s request, then respond saying "Sorry, I don''t know".<br>If the query contains "small talk" then respond saying "Sorry, I cannot respond to small talk".<br>Think carefully, step by step.'
+
+  AGENTASSISTSETUP:
+    Type: AWS::CloudFormation::Stack
+    Condition: ShouldEnableLexAgentAssist
+    DependsOn: AISTACK
+    Properties:
+      # yamllint disable rule:line-length
+      TemplateURL: https://s3.<REGION_TOKEN>.amazonaws.com/<ARTIFACT_BUCKET_TOKEN>/<ARTIFACT_PREFIX_TOKEN>/lca-agentassist-setup-stack/template.yaml
+      # yamllint enable rule:line-length
+      Parameters:
+        LCAStackName: !Ref AWS::StackName
+        AISTACK: !Ref AISTACK
+        QNABOTSTACK: !If
+          - ShouldInstallAWSQnaBot
+          - !Ref QNABOT
+          - ""
+        AgentAssistLLMBedrockModelId: !Ref AgentAssistLLMBedrockModelId
+        BedrockKnowledgeBaseID: !If
+          - ShouldUseBedrockKnowledgeBase
+          - !If
+            - ShouldCreateBedrockKnowledgeBase
+            - !GetAtt BEDROCKKB.Outputs.KnowledgeBaseID
+            - !Ref BedrockKnowledgeBaseId
+          - ""
+        BedrockKnowledgeBaseS3BucketName: !Ref BedrockKnowledgeBaseS3BucketName
+        LexAgentAssistBotId: !If
+          - ShouldInstallAWSQnaBot
+          - !GetAtt QNABOT.Outputs.LexV2BotId
+          - !Ref AgentAssistExistingLexV2BotId
+        LexAgentAssistAliasId: !If
+          - ShouldInstallAWSQnaBot
+          - !GetAtt QNABOT.Outputs.LexV2BotAliasId
+          - !Ref AgentAssistExistingLexV2BotAliasId
+        LexAgentAssistLocaleId:
+          !FindInMap [
+            TranscribeToLexLocaleId,
+            !Ref TranscribeLanguageCode,
+            Value,
+          ]
+        QnaAgentAssistDemoJson: <ARTIFACT_BUCKET_TOKEN>/<ARTIFACT_PREFIX_TOKEN>/lca-agentassist-setup-stack/qna-aa-demo.jsonl
+        QnaBotSettings: !GetAtt SettingsJSON.Output
+        WebAppBucket: !GetAtt AISTACK.Outputs.WebAppBucket
+        CloudFrontDistributionId: !GetAtt AISTACK.Outputs.CloudFrontDistributionId
+        # Changes to Params below force AgentAssist Setup to update.
+        LexAgentAssistIdentityPoolId: !GetAtt AISTACK.Outputs.LexAgentAssistIdentityPoolId
+        CloudFrontDomainName: !GetAtt AISTACK.Outputs.CloudFrontDomainName
+        FetchTranscriptFunctionArn: !GetAtt AISTACK.Outputs.FetchTranscriptArn
+        TranscriptSummaryFunctionArn: !GetAtt AISTACK.Outputs.TranscriptSummaryFunctionArn
+        TranscribeLanguageCode: !Ref TranscribeLanguageCode
+        TranscriptLambdaHookFunctionArn: !Ref TranscriptLambdaHookFunctionArn
+        TranscriptLambdaHookFunctionNonPartialOnly: !Ref TranscriptLambdaHookFunctionNonPartialOnly
+        DynamoDbExpirationInDays: !Ref DynamoDbExpirationInDays
+        EndOfCallTranscriptSummary: !Ref EndOfCallTranscriptSummary
+        EndOfCallLambdaHookFunctionArn: !Ref EndOfCallLambdaHookFunctionArn
+        CallAudioSource: !Ref CallAudioSource
+        ComprehendLanguageCode:
+          !FindInMap [
+            TranscribeToComprehendLanguage,
+            !Ref TranscribeLanguageCode,
+            Value,
+          ]
+        AgentAssistOption: !Ref AgentAssistOption
+        AgentAssistExistingLexV2BotId: !Ref AgentAssistExistingLexV2BotId
+        AgentAssistExistingLexV2BotAliasId: !Ref AgentAssistExistingLexV2BotAliasId
+        AgentAssistExistingLambdaFunctionArn: !Ref AgentAssistExistingLambdaFunctionArn
+        AgentAssistWebCrawlURLs: !Ref AgentAssistWebCrawlURLs
+        AgentAssistWebCrawlSyncScope: !Ref AgentAssistWebCrawlSyncScope
+        IsSentimentAnalysisEnabled: !Ref IsSentimentAnalysisEnabled
+        SentimentNegativeScoreThreshold: !Ref SentimentNegativeScoreThreshold
+        SentimentPositiveScoreThreshold: !Ref SentimentPositiveScoreThreshold
+        Version: v0.9.0
+
+  VPCSTACK:
+    Type: AWS::CloudFormation::Stack
+    Condition: ShouldCreateVPC
+    DependsOn:
+      - IsStacknameLengthOK
+      - ValidateParameters
+    Properties:
+      # yamllint disable rule:line-length
+      TemplateURL: https://s3.<REGION_TOKEN>.amazonaws.com/<ARTIFACT_BUCKET_TOKEN>/<ARTIFACT_PREFIX_TOKEN>/lca-vpc-stack/template.yaml
+      # yamllint enable rule:line-length
+      Parameters:
+        LCAStackName: !Ref "AWS::StackName"
+
+  CHIMEVCSTACK:
+    Type: AWS::CloudFormation::Stack
+    Condition: ShouldInstallChimeVCStack
+    DependsOn:
+      - IsStacknameLengthOK
+      - ValidateParameters
+    Properties:
+      # yamllint disable rule:line-length
+      TemplateURL: https://s3.<REGION_TOKEN>.amazonaws.com/<ARTIFACT_BUCKET_TOKEN>/<ARTIFACT_PREFIX_TOKEN>/lca-chimevc-stack/template.yaml
+      # yamllint enable rule:line-length
+      Parameters:
+        LCAStackName: !Ref "AWS::StackName"
+        EnableVoiceToneAnalysis: !If
+          - ShouldEnableVoiceToneAnalysis
+          - true
+          - false
+        UseChimeCallAnalytics: !If
+          - ShouldUseChimeCallAnalytics
+          - true
+          - false
+        InstallDemoAsteriskServer: !If
+          - ShouldInstallDemoAsteriskServer
+          - true
+          - false
+        DemoSoftphoneAllowedCidr: !Ref DemoSoftphoneAllowedCidr
+        SiprecAllowedCidrList: !Ref SiprecAllowedCidrList
+        DemoAsteriskAgentAudioURL: !Ref DemoAsteriskAgentAudioURL
+        AudioFilePrefix: !Ref AudioFilePrefix
+        CallAnalyticsPrefix: !Ref CallAnalyticsPrefix
+        KinesisDataStreamName: !Ref CallDataStream
+        KinesisDataStreamArn: !GetAtt CallDataStream.Arn
+        S3BucketName: !If
+          - ShouldCreateRecordingBucket
+          - !Ref RecordingsBucket
+          - !Ref S3BucketName
+        IsPartialTranscriptEnabled: !Ref IsPartialTranscriptEnabled
+        TranscribeApiMode: !Ref TranscribeApiMode
+        IsContentRedactionEnabled: !Ref IsContentRedactionEnabled
+        TranscribeContentRedactionType: !Ref TranscribeContentRedactionType
+        TranscribeLanguageCode: !Ref TranscribeLanguageCode
+        TranscribeLanguageOptions: !Ref TranscribeLanguageOptions
+        TranscribePreferredLanguage: !Ref TranscribePreferredLanguage
+        TranscribePiiEntityTypes: !Ref TranscribePiiEntityTypes
+        CustomVocabularyName: !Ref CustomVocabularyName
+        CustomLanguageModelName: !Ref CustomLanguageModelName
+        SiprecLambdaHookFunctionArn: !Ref SiprecLambdaHookFunctionArn
+        PcaS3BucketName: !Ref PcaS3BucketName
+        PcaTranscriptsPrefix: !Ref PcaTranscriptsPrefix
+        PcaPlaybackAudioFilePrefix: !Ref PcaPlaybackAudioFilePrefix
+        PcaWebAppURL: !Ref PcaWebAppURL
+        PcaWebAppCallPathPrefix: !Ref PcaWebAppCallPathPrefix
+        CustomVoiceConnectorId: !Ref CustomVoiceConnectorId
+        VPC: !If
+          - ShouldCreateVPC
+          - !GetAtt VPCSTACK.Outputs.VPC
+          - !Ref VPC
+        PublicSubnet1: !If
+          - ShouldCreateVPC
+          - !GetAtt VPCSTACK.Outputs.PublicSubnet1
+          - !Ref PublicSubnet1     
+        Version: <VERSION_TOKEN>
+
+  CONNECTKVSSTACK:
+    Type: AWS::CloudFormation::Stack
+    Condition: ShouldInstallConnectKVSStack
+    DependsOn:
+      - IsStacknameLengthOK
+      - ValidateParameters
+    Properties:
+      # yamllint disable rule:line-length
+      TemplateURL: https://s3.<REGION_TOKEN>.amazonaws.com/<ARTIFACT_BUCKET_TOKEN>/<ARTIFACT_PREFIX_TOKEN>/lca-connect-kvs-stack/template.yaml
+      # yamllint enable rule:line-length
+      Parameters:
+        ConnectInstanceArn: !Ref ConnectInstanceArn
+        CallAnalyticsPrefix: !Ref CallAnalyticsPrefix
+        KinesisDataStreamName: !Ref CallDataStream
+        KinesisDataStreamArn: !GetAtt CallDataStream.Arn
+        S3BucketName: !If
+          - ShouldCreateRecordingBucket
+          - !Ref RecordingsBucket
+          - !Ref S3BucketName
+        IsPartialTranscriptEnabled: !Ref IsPartialTranscriptEnabled
+        TranscribeApiMode: !Ref TranscribeApiMode
+        IsContentRedactionEnabled: !Ref IsContentRedactionEnabled
+        TranscribeContentRedactionType: !Ref TranscribeContentRedactionType
+        TranscribeLanguageCode: !Ref TranscribeLanguageCode
+        TranscribeLanguageOptions: !Ref TranscribeLanguageOptions
+        TranscribePreferredLanguage: !Ref TranscribePreferredLanguage
+        TranscribePiiEntityTypes: !Ref TranscribePiiEntityTypes
+        CustomVocabularyName: !Ref CustomVocabularyName
+        CustomLanguageModelName: !Ref CustomLanguageModelName
+        EventSourcingTableName: !GetAtt AISTACK.Outputs.EventSourcingTableName
+        EventSourcingTableArn: !GetAtt AISTACK.Outputs.EventSourcingTableArn
+
+  GENESYSAUDIOHOOKTRANSCRIBERSTACK:
+    Type: AWS::CloudFormation::Stack
+    Condition: ShouldInstallGenesysAudiohookStack
+    DependsOn:
+      - IsStacknameLengthOK
+      - ValidateParameters
+    Properties:
+      # yamllint disable rule:line-length
+      TemplateURL: https://s3.<REGION_TOKEN>.amazonaws.com/<ARTIFACT_BUCKET_TOKEN>/<ARTIFACT_PREFIX_TOKEN>/lca-genesys-audiohook-stack/<VERSION_TOKEN>/template.yaml
+      # yamllint enable rule:line-length
+      Parameters:
+        S3BucketName: !If
+          - ShouldCreateRecordingBucket
+          - !Ref RecordingsBucket
+          - !Ref S3BucketName
+        AudioFilePrefix: !Ref AudioFilePrefix
+        CallAnalyticsPrefix: !Ref CallAnalyticsPrefix
+        CallDataStreamName: !Ref CallDataStream
+        CallDataStreamArn: !GetAtt CallDataStream.Arn
+        CloudFrontPriceClass: !Ref CloudFrontPriceClass
+        TranscribeApiMode: !Ref TranscribeApiMode
+        IsContentRedactionEnabled: !Ref IsContentRedactionEnabled
+        TranscribeContentRedactionType: !Ref TranscribeContentRedactionType
+        TranscribeLanguageCode: !Ref TranscribeLanguageCode
+        TranscribeLanguageOptions: !Ref TranscribeLanguageOptions
+        TranscribePreferredLanguage: !Ref TranscribePreferredLanguage
+        TranscribePiiEntityTypes: !Ref TranscribePiiEntityTypes
+        CustomVocabularyName: !Ref CustomVocabularyName
+        CustomLanguageModelName: !Ref CustomLanguageModelName
+        PcaS3BucketName: !Ref PcaS3BucketName
+        PcaTranscriptsPrefix: !Ref PcaTranscriptsPrefix
+        PcaPlaybackAudioFilePrefix: !Ref PcaPlaybackAudioFilePrefix
+        PcaWebAppURL: !Ref PcaWebAppURL
+        PcaWebAppCallPathPrefix: !Ref PcaWebAppCallPathPrefix
+        VPC: !If
+          - ShouldCreateVPC
+          - !GetAtt VPCSTACK.Outputs.VPC
+          - !Ref VPC
+        PublicSubnet1: !If
+          - ShouldCreateVPC
+          - !GetAtt VPCSTACK.Outputs.PublicSubnet1
+          - !Ref PublicSubnet1
+        PublicSubnet2: !If
+          - ShouldCreateVPC
+          - !GetAtt VPCSTACK.Outputs.PublicSubnet2
+          - !Ref PublicSubnet2
+        PrivateSubnet1: !If
+          - ShouldCreateVPC
+          - !GetAtt VPCSTACK.Outputs.PrivateSubnet1
+          - !Ref PrivateSubnet1
+        PrivateSubnet2: !If
+          - ShouldCreateVPC
+          - !GetAtt VPCSTACK.Outputs.PrivateSubnet2
+          - !Ref PrivateSubnet2
+
+  TALKDESKSTACK:
+    Type: AWS::CloudFormation::Stack
+    Condition: ShouldInstallTalkdeskStack
+    Properties:
+      # yamllint disable rule:line-length
+      TemplateURL: https://s3.<REGION_TOKEN>.amazonaws.com/<ARTIFACT_BUCKET_TOKEN>/<ARTIFACT_PREFIX_TOKEN>/lca-talkdesk-voicestream-stack/<VERSION_TOKEN>/template.yaml
+      # yamllint enable rule:line-length
+      Parameters:
+        S3BucketName: !If
+          - ShouldCreateRecordingBucket
+          - !Ref RecordingsBucket
+          - !Ref S3BucketName
+        AudioFilePrefix: !Ref AudioFilePrefix
+        CallAnalyticsPrefix: !Ref CallAnalyticsPrefix
+        CallDataStreamName: !Ref CallDataStream
+        CallDataStreamArn: !GetAtt CallDataStream.Arn
+        CloudFrontPriceClass: !Ref CloudFrontPriceClass
+        TranscribeApiMode: !Ref TranscribeApiMode
+        IsContentRedactionEnabled: !Ref IsContentRedactionEnabled
+        TranscribeContentRedactionType: !Ref TranscribeContentRedactionType
+        TranscribeLanguageCode: !Ref TranscribeLanguageCode
+        TranscribeLanguageOptions: !Ref TranscribeLanguageOptions
+        TranscribePreferredLanguage: !Ref TranscribePreferredLanguage
+        TranscribePiiEntityTypes: !Ref TranscribePiiEntityTypes
+        CustomVocabularyName: !Ref CustomVocabularyName
+        CustomLanguageModelName: !Ref CustomLanguageModelName
+        PcaS3BucketName: !Ref PcaS3BucketName
+        PcaTranscriptsPrefix: !Ref PcaTranscriptsPrefix
+        PcaPlaybackAudioFilePrefix: !Ref PcaPlaybackAudioFilePrefix
+        PcaWebAppURL: !Ref PcaWebAppURL
+        PcaWebAppCallPathPrefix: !Ref PcaWebAppCallPathPrefix
+        TalkdeskAccountId: !Ref TalkdeskAccountId
+        VPC: !If
+          - ShouldCreateVPC
+          - !GetAtt VPCSTACK.Outputs.VPC
+          - !Ref VPC
+        PublicSubnet1: !If
+          - ShouldCreateVPC
+          - !GetAtt VPCSTACK.Outputs.PublicSubnet1
+          - !Ref PublicSubnet1
+        PublicSubnet2: !If
+          - ShouldCreateVPC
+          - !GetAtt VPCSTACK.Outputs.PublicSubnet2
+          - !Ref PublicSubnet2
+        PrivateSubnet1: !If
+          - ShouldCreateVPC
+          - !GetAtt VPCSTACK.Outputs.PrivateSubnet1
+          - !Ref PrivateSubnet1
+        PrivateSubnet2: !If
+          - ShouldCreateVPC
+          - !GetAtt VPCSTACK.Outputs.PrivateSubnet2
+          - !Ref PrivateSubnet2
+
+          
+  WEBSOCKETTRANSCRIBERSTACK:
+    Type: AWS::CloudFormation::Stack
+    Condition: ShouldInstallWebSocketStack
+    DependsOn:
+      - IsStacknameLengthOK
+      - ValidateParameters
+    Properties:
+      # yamllint disable rule:line-length
+      TemplateURL: https://s3.<REGION_TOKEN>.amazonaws.com/<ARTIFACT_BUCKET_TOKEN>/<ARTIFACT_PREFIX_TOKEN>/lca-websocket-transcriber-stack/<VERSION_TOKEN>/template.yaml
+      # yamllint enable rule:line-length
+      Parameters:
+        S3BucketName: !If
+          - ShouldCreateRecordingBucket
+          - !Ref RecordingsBucket
+          - !Ref S3BucketName
+        AudioFilePrefix: !Ref AudioFilePrefix
+        UserPoolId: !GetAtt AISTACK.Outputs.UserPoolId
+        CallAnalyticsPrefix: !Ref CallAnalyticsPrefix
+        CallDataStreamName: !Ref CallDataStream
+        CallDataStreamArn: !GetAtt CallDataStream.Arn
+        CloudFrontPriceClass: !Ref CloudFrontPriceClass
+        TranscribeApiMode: !Ref TranscribeApiMode
+        IsContentRedactionEnabled: !Ref IsContentRedactionEnabled
+        TranscribeContentRedactionType: !Ref TranscribeContentRedactionType
+        TranscribeLanguageCode: !Ref TranscribeLanguageCode
+        TranscribeLanguageOptions: !Ref TranscribeLanguageOptions
+        TranscribePreferredLanguage: !Ref TranscribePreferredLanguage
+        TranscribePiiEntityTypes: !Ref TranscribePiiEntityTypes
+        CustomVocabularyName: !Ref CustomVocabularyName
+        CustomLanguageModelName: !Ref CustomLanguageModelName
+        PcaS3BucketName: !Ref PcaS3BucketName
+        PcaTranscriptsPrefix: !Ref PcaTranscriptsPrefix
+        PcaPlaybackAudioFilePrefix: !Ref PcaPlaybackAudioFilePrefix
+        PcaWebAppURL: !Ref PcaWebAppURL
+        PcaWebAppCallPathPrefix: !Ref PcaWebAppCallPathPrefix
+        LCASettingsParameterName: !Ref LCASettingsParameter
+        UpdateLCASettingsFunctionArn: !GetAtt UpdateLCASettingsFunction.Arn
+        # Pass CategoryAlertRegex and CategoryAlertRegEx to force LCASettingsParam to be updated with WSEndpoint
+        # if the values are changed (and the LCASettings param was recreated in the ai-stack)
+        CategoryAlertRegEx: !Ref CategoryAlertRegEx
+        EnableVoiceToneAnalysis: !If
+          - ShouldEnableVoiceToneAnalysis
+          - "true"
+          - "false"
+        VPC: !If
+          - ShouldCreateVPC
+          - !GetAtt VPCSTACK.Outputs.VPC
+          - !Ref VPC
+        PublicSubnet1: !If
+          - ShouldCreateVPC
+          - !GetAtt VPCSTACK.Outputs.PublicSubnet1
+          - !Ref PublicSubnet1
+        PublicSubnet2: !If
+          - ShouldCreateVPC
+          - !GetAtt VPCSTACK.Outputs.PublicSubnet2
+          - !Ref PublicSubnet2
+        PrivateSubnet1: !If
+          - ShouldCreateVPC
+          - !GetAtt VPCSTACK.Outputs.PrivateSubnet1
+          - !Ref PrivateSubnet1
+        PrivateSubnet2: !If
+          - ShouldCreateVPC
+          - !GetAtt VPCSTACK.Outputs.PrivateSubnet2
+          - !Ref PrivateSubnet2
+
+  CONNECTINTEGRATIONSTACK:
+    Type: AWS::CloudFormation::Stack
+    Condition: ShouldInstallConnectIntegrationStack
+    DependsOn:
+      - IsStacknameLengthOK
+      - ValidateParameters
+    Properties:
+      # yamllint disable rule:line-length
+      TemplateURL: https://s3.<REGION_TOKEN>.amazonaws.com/<ARTIFACT_BUCKET_TOKEN>/<ARTIFACT_PREFIX_TOKEN>/lca-connect-integration-stack/template.yaml
+      # yamllint enable rule:line-length
+      Parameters:
+        ConnectInstanceArn: !Ref ConnectInstanceArn
+        CallEventProcessorFunctionRoleName: !GetAtt AISTACK.Outputs.CallEventProcessorFunctionRoleName
+        CallDataStreamName: !Ref CallDataStream
+        CallDataStreamArn: !GetAtt CallDataStream.Arn
+        EventSourcingTableName: !GetAtt AISTACK.Outputs.EventSourcingTableName
+        EventSourcingTableArn: !GetAtt AISTACK.Outputs.EventSourcingTableArn
+
+Outputs:
+  ApplicationCloudfrontEndpoint:
+    Description: LCA User Interface URL
+    Value: !GetAtt AISTACK.Outputs.CloudfrontEndpoint
+
+  AsteriskInstanceId:
+    Description: Demo Asterisk Server EC2 instanceId
+    Value: !If
+      - ShouldInstallChimeVCStack
+      - !GetAtt CHIMEVCSTACK.Outputs.AsteriskInstanceId
+      - "Demo Asterisk PBX not enabled"
+
+  CallDataStreamName:
+    Description: >-
+      The Name of Kinesis Data Stream to write the call data to.
+    Value: !Ref CallDataStream
+
+  CallDataStreamArn:
+    Description: >-
+      The ARN of Kinesis Data Stream to write the call data to.
+    Value: !GetAtt CallDataStream.Arn
+
+  DemoPBXIPAddress:
+    Description: Demo Asterisk Server IP Address
+    Value: !If
+      - ShouldInstallChimeVCStack
+      - !GetAtt CHIMEVCSTACK.Outputs.DemoPBXIPAddress
+      - "Demo Asterisk PBX not enabled"
+
+  DemoPBXPhoneNumber:
+    Description: Demo Asterisk Server Phone Number
+    Value: !If
+      - ShouldInstallChimeVCStack
+      - !GetAtt CHIMEVCSTACK.Outputs.DemoPBXPhoneNumber
+      - "Demo Asterisk PBX not enabled"
+
+  GenesysAudiohookWebSocketEndpoint:
+    Description: Websocket endpoint for Genesys Cloud Audiohook integration
+    Value: !If
+      - ShouldInstallGenesysAudiohookStack
+      - !GetAtt GENESYSAUDIOHOOKTRANSCRIBERSTACK.Outputs.WebSocketEndpoint
+      - "Genesys Cloud Audiohook Web Socket not enabled"
+
+  GenesysAudiohookWebSocketAPIKey:
+    Value: !If
+      - ShouldInstallGenesysAudiohookStack
+      - !GetAtt GENESYSAUDIOHOOKTRANSCRIBERSTACK.Outputs.AudiohookAPIKey
+      - "Genesys Cloud Audiohook Web Socket not enabled"
+
+  GenesysAudiohookWebSocketAPIClientSecret:
+    Value: !If
+      - ShouldInstallGenesysAudiohookStack
+      - !GetAtt GENESYSAUDIOHOOKTRANSCRIBERSTACK.Outputs.AudiohookAPIClientSecret
+      - "Genesys Cloud Audiohook Web Socket not enabled"
+
+  TalkdeskWebsocketEndpoint:
+    Description: Websocket endpoint for Talkdesk websocket integration
+    Value: !If
+      - ShouldInstallTalkdeskStack
+      - !GetAtt TALKDESKSTACK.Outputs.WebSocketEndpoint
+      - " Talkdesk WebSocket source not enabled"
+
+  LCAWebsocketEndpoint:
+    Description: Websocket endpoint for websocket integration
+    Value: !If
+      - ShouldInstallWebSocketStack
+      - !GetAtt WEBSOCKETTRANSCRIBERSTACK.Outputs.WebSocketEndpoint
+      - " Web Socket not enabled"
+
+  QnaBotContentDesigner:
+    Description: Agent Assist Content Designer URL (QnABot on AWS)
+    Value: !If
+      - ShouldInstallAWSQnaBot
+      - !GetAtt QNABOT.Outputs.ContentDesignerURL
+      - "Agent Assist QnABot on AWS not enabled"
+
+  RecordingsS3Bucket:
+    Description: Bucket contains all the call recordings
+    Value: !If
+      - ShouldCreateRecordingBucket
+      - !Ref RecordingsBucket
+      - !Ref S3BucketName
+
+  SNSCategoryTopicName:
+    Description: The name of the SNS Topic for matched category and alert notifications
+    Value: !GetAtt AISTACK.Outputs.SNSTopic
+
+  FetchTranscriptLambdaArn:
+    Description: The ARN of a Lambda function that will process and export a call transcript as a string.
+    Value: !GetAtt AISTACK.Outputs.FetchTranscriptArn
+
+  LLMDefaultPromptSummaryTemplate:
+    Description:
+      View the *default* summary prompts. Do not edit. To override default
+      prompts, add or edit attributes in the custom summary prompts item.
+    Value: !Sub "https://${AWS::Region}.console.aws.amazon.com/dynamodbv2/home?region=${AWS::Region}#edit-item?itemMode=2&pk=DefaultSummaryPromptTemplates&route=ROUTE_ITEM_EXPLORER&sk=&table=${LLMTEMPLATESTACK.Outputs.LLMPromptTemplateTableName}"
+
+  LLMCustomPromptSummaryTemplate:
+    Description:
+      Edit the *custom* summary prompts. Attribute values here override
+      the default summary prompts, and are preserved during stack updates.
+    Value: !Sub "https://${AWS::Region}.console.aws.amazon.com/dynamodbv2/home?region=${AWS::Region}#edit-item?itemMode=2&pk=CustomSummaryPromptTemplates&route=ROUTE_ITEM_EXPLORER&sk=&table=${LLMTEMPLATESTACK.Outputs.LLMPromptTemplateTableName}"
+
+  ConnectStartLCAFunctionName:
+    Description: Amazon Connect Lambda function for contact flow integration when Amazon Connect KVS is selected as an audio source.
+    Value: !If
+      - ShouldInstallConnectKVSStack
+      - !GetAtt CONNECTKVSSTACK.Outputs.StartLCAFunctionName
+      - "Amazon Connect KVS audio source not enabled"
