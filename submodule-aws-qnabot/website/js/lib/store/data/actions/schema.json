@@ -1,0 +1,36 @@
+{
+    "type":"object",
+    "properties":{
+        "qna":{
+            "type":"array",
+            "items":{
+                "type":"object",
+                "properties":{
+                    "q":{
+                        "type":"array",
+                        "items":{
+                            "type":"string"
+                        }
+                    },
+                    "a":{
+                        "type":"string"
+                    },
+                    "sa":{
+                        "type": "array",
+                        "items": {
+                            "type":["object"]
+                        }
+                    },
+                    "qid":{
+                        "type":"string"
+                    },
+                    "r":{
+                        "type":["object"]
+                    }
+                },
+                "required":["q","a","qid"]
+            }
+        }
+    },
+    "required":["qna"]
+}
