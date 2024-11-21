@@ -155,11 +155,11 @@ const registerHandlers = (clientIP: string, ws: WebSocket): void => {
                 if (isConnectedEvent(message.event)) {
                     await onConnected(clientIP, ws, message as MediaStreamConnectedMessage);
                 } else if (isStartEvent(message.event)) {
-                    await onStart(clientIP, ws, message as MediaStreamStartMessage);
+                    await onStart(clientIP, ws, message as unknown as ExotelStartMessage);
                 } else if (isMediaEvent(message.event)) {
-                    await onMedia(clientIP, ws, message as MediaStreamMediaMessage);
+                    await onMedia(clientIP, ws, message as unknown as ExotelMediaMessage);
                 } else if (isStopEvent(message.event)) {
-                    await onStop(clientIP, ws, message as MediaStreamStopMessage);
+                    await onStop(clientIP, ws, message as unknown as ExotelStopMessage);
                 } else {
                     server.log.error(`[ON MESSAGE]: [${clientIP}] - Invalid Event Type Event Type in the event message received from Talkdesk. Ignoring the event. ${JSON.stringify(message)}`);
                 }
@@ -245,7 +245,7 @@ const onStart = async (clientIP: string, ws: WebSocket, data: ExotelStartMessage
 const onMedia = async (clientIP: string, ws: WebSocket, data: ExotelMediaMessage): Promise<void> => {
     const socketData = socketMap.get(ws) as ExotelSocketCallData;
     
-    let callid = `Stream ID-${data.stream_sid}`;
+    let callid = `Stream ID-${data.streamSid}`;
     if (socketData && socketData.callMetadata) {
         callid = socketData.callMetadata.callId;
     }

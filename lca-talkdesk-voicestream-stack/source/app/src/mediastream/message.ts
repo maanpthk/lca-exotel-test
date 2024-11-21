@@ -37,8 +37,8 @@ export type MediaStreamConnectedMessage = {
 
 export type MediaStreamBase<Type extends MediaStreamEventType = MediaStreamEventType> = {
     event: Type;
-    sequenceNumber: string;
-    streamSid: Uuid;
+    sequence_number: number; // Changed from sequenceNumber
+    streamSid: string;
 }
 
 export type MediaStreamStartMessage = MediaStreamBase<StartEvent> & {

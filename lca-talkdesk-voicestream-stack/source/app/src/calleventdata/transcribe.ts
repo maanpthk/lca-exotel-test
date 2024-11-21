@@ -174,23 +174,24 @@ export const startTranscribe = async (callMetaData: ExotelCallMetaData, audioInp
         AudioStream: transcribeInput()
     };
 
-    if (TRANSCRIBE_LANGUAGE_CODE === 'identify-language') {
-        tsParams.IdentifyLanguage = true;
-        if (TRANSCRIBE_LANGUAGE_OPTIONS) {
-            tsParams.LanguageOptions = TRANSCRIBE_LANGUAGE_OPTIONS.replace(/\s/g, '');
-            if (TRANSCRIBE_PREFERRED_LANGUAGE !== 'None') {
-                tsParams.PreferredLanguage = TRANSCRIBE_PREFERRED_LANGUAGE as LanguageCode;
-            }
+    // transcribe.ts
+if (TRANSCRIBE_LANGUAGE_CODE === 'identify-language') {
+    (tsParams as StartStreamTranscriptionCommandInput).IdentifyLanguage = true;
+    if (TRANSCRIBE_LANGUAGE_OPTIONS) {
+        (tsParams as StartStreamTranscriptionCommandInput).LanguageOptions = TRANSCRIBE_LANGUAGE_OPTIONS.replace(/\s/g, '');
+        if (TRANSCRIBE_PREFERRED_LANGUAGE !== 'None') {
+            (tsParams as StartStreamTranscriptionCommandInput).PreferredLanguage = TRANSCRIBE_PREFERRED_LANGUAGE as LanguageCode;
         }
-    } else if (TRANSCRIBE_LANGUAGE_CODE === 'identify-multiple-languages') {
-        tsParams.IdentifyMultipleLanguages = true;
-        if (TRANSCRIBE_LANGUAGE_OPTIONS) {
-            tsParams.LanguageOptions = TRANSCRIBE_LANGUAGE_OPTIONS.replace(/\s/g, '');
-            if (TRANSCRIBE_PREFERRED_LANGUAGE !== 'None') {
-                tsParams.PreferredLanguage = TRANSCRIBE_PREFERRED_LANGUAGE as LanguageCode;
-            }
+    }
+} else if (TRANSCRIBE_LANGUAGE_CODE === 'identify-multiple-languages') {
+    (tsParams as StartStreamTranscriptionCommandInput).IdentifyMultipleLanguages = true;
+    if (TRANSCRIBE_LANGUAGE_OPTIONS) {
+        (tsParams as StartStreamTranscriptionCommandInput).LanguageOptions = TRANSCRIBE_LANGUAGE_OPTIONS.replace(/\s/g, '');
+        if (TRANSCRIBE_PREFERRED_LANGUAGE !== 'None') {
+            (tsParams as StartStreamTranscriptionCommandInput).PreferredLanguage = TRANSCRIBE_PREFERRED_LANGUAGE as LanguageCode;
         }
-    } else {
+    }
+} else {
         tsParams.LanguageCode = TRANSCRIBE_LANGUAGE_CODE as LanguageCode;
     }
 
