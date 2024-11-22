@@ -230,7 +230,7 @@ const onStart = async (clientIP: string, ws: WebSocket, data: ExotelStartMessage
         // Configure streams
         server.log.debug(`[ON START]: [${clientIP}][${data.start.call_sid}] - Configuring audio streams`);
         const highWaterMarkSize = 8000; // 1 second of audio at 8kHz
-        
+
         try {
             const audioInputStream = new PassThrough({ highWaterMark: highWaterMarkSize });
             const agentBlock = new BlockStream2({ size: 320 }); // 20ms of audio
@@ -241,7 +241,6 @@ const onStart = async (clientIP: string, ws: WebSocket, data: ExotelStartMessage
             server.log.debug(`[ON START]: [${clientIP}][${data.start.call_sid}] - Created audio streams with highWaterMark: ${highWaterMarkSize}`);
 
             // Set up stream pipeline
-            server.log.debug(`[ON START]: [${clientIP}][${data.start.call_sid}] - Setting up stream pipeline`);
             combinedStream.pipe(combinedStreamBlock);
             interleave([agentBlock, callerBlock]).pipe(combinedStream);
 
@@ -259,28 +258,28 @@ const onStart = async (clientIP: string, ws: WebSocket, data: ExotelStartMessage
                 ended: false
             };
 
-            // Set up error handlers for streams
-            audioInputStream.on('error', (err) => {
+            // Set up error handlers for streams with proper type annotations
+            audioInputStream.on('error', (err: Error) => {
                 server.log.error(`[ON START]: [${clientIP}][${data.start.call_sid}] - Audio input stream error:`, err);
             });
 
-            writeRecordingStream.on('error', (err) => {
+            writeRecordingStream.on('error', (err: Error) => {
                 server.log.error(`[ON START]: [${clientIP}][${data.start.call_sid}] - Recording stream error:`, err);
             });
 
-            combinedStream.on('error', (err) => {
+            combinedStream.on('error', (err: Error) => {
                 server.log.error(`[ON START]: [${clientIP}][${data.start.call_sid}] - Combined stream error:`, err);
             });
 
-            combinedStreamBlock.on('error', (err) => {
+            combinedStreamBlock.on('error', (err: Error) => {
                 server.log.error(`[ON START]: [${clientIP}][${data.start.call_sid}] - Combined stream block error:`, err);
             });
 
             server.log.debug(`[ON START]: [${clientIP}][${data.start.call_sid}] - Adding socket to map`);
             socketMap.set(ws, socketCallMap);
 
-            // Set up combined stream data handler
-            combinedStreamBlock.on('data', (chunk) => {
+            // Set up combined stream data handler with proper type annotation
+            combinedStreamBlock.on('data', (chunk: Buffer) => {
                 try {
                     server.log.debug(`[ON START]: [${clientIP}][${data.start.call_sid}] - Processing combined chunk of size: ${chunk.length}`);
                     audioInputStream.write(chunk);
@@ -313,7 +312,7 @@ const onStart = async (clientIP: string, ws: WebSocket, data: ExotelStartMessage
         if (ws && socketMap.has(ws)) {
             socketMap.delete(ws);
         }
-        throw error; // Re-throw to be handled by the caller
+        throw error;
     }
 };
 
