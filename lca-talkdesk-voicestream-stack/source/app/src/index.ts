@@ -185,59 +185,136 @@ const onConnected = async (clientIP: string, ws: WebSocket, data: MediaStreamCon
 };
 
 const onStart = async (clientIP: string, ws: WebSocket, data: ExotelStartMessage): Promise<void> => {
-    server.log.info(`[ON START]: [${clientIP}][${data.start.call_sid}] - Received Start event from Exotel client. ${JSON.stringify(data)}`);
-    
-    const callMetaData: ExotelCallMetaData = {
-        callEvent: 'START',
-        callId: data.start.call_sid,
-        fromNumber: data.start.from,
-        toNumber: data.start.to,
-        shouldRecordCall: SHOULD_RECORD_CALL === 'true' ? true : false,
-        samplingRate: parseInt(data.start.media_format.sample_rate),
-        agentId: randomUUID(),
-        customParameters: data.start.custom_parameters,
-        bitRate: data.start.media_format.bit_rate
-    };
+    try {
+        server.log.info(`[ON START]: [${clientIP}][${data.start.call_sid}] - Received Start event from Exotel client:`, {
+            startData: data
+        });
 
-    const tempRecordingFilename = getTempRecordingFileName(callMetaData);
-    const writeRecordingStream = fs.createWriteStream(path.join(LOCAL_TEMP_DIR, tempRecordingFilename));
-    const recordingFileSize = { filesize: 0 };
-    // const highWaterMarkSize = (callMetaData.samplingRate / 10) * 2 * 2;
-    const highWaterMarkSize = 8000;
-    const audioInputStream = new PassThrough({ highWaterMark: highWaterMarkSize });
-    const agentBlock = new BlockStream({ size: 2 });
-    const callerBlock = new BlockStream({ size: 2 });
-    const combinedStream = new PassThrough();
-    const combinedStreamBlock = new BlockStream({ size: 4 });
-    server.log.debug(`[ON START]: [${clientIP}][${data.start.call_sid}] - Created audio streams with highWaterMark: ${highWaterMarkSize}`);
-    combinedStream.pipe(combinedStreamBlock);
-    interleave([agentBlock, callerBlock]).pipe(combinedStream);
+        // Validate required data
+        if (!data.start || !data.start.call_sid) {
+            throw new Error('Missing required start data or call_sid');
+        }
 
-    const socketCallMap:SocketCallData = {
-        callMetadata: callMetaData,
-        audioInputStream: audioInputStream,
-        writeRecordingStream: writeRecordingStream,
-        recordingFileSize: recordingFileSize,
-        startStreamTime: new Date(),
-        agentBlock: agentBlock,
-        callerBlock: callerBlock,
-        combinedStream: combinedStream,
-        combinedStreamBlock: combinedStreamBlock,
-        ended: false,
-    };
-    socketMap.set(ws, socketCallMap);
+        server.log.debug(`[ON START]: [${clientIP}][${data.start.call_sid}] - Creating call metadata`);
+        
+        const callMetaData: ExotelCallMetaData = {
+            callEvent: 'START',
+            callId: data.start.call_sid,
+            fromNumber: data.start.from,
+            toNumber: data.start.to,
+            shouldRecordCall: SHOULD_RECORD_CALL === 'true',
+            samplingRate: 8000, // Fixed for Exotel
+            agentId: randomUUID(),
+            customParameters: data.start.custom_parameters,
+            bitRate: data.start.media_format.bit_rate
+        };
 
-    await writeCallStartEvent(callMetaData, server);
+        server.log.debug(`[ON START]: [${clientIP}][${data.start.call_sid}] - Created call metadata:`, {
+            metadata: callMetaData
+        });
 
-    combinedStreamBlock.on('data', (chunk) => {
-        // server.log.info(`[COMBINED STREAM]: [${clientIP}][${callMetaData.callId}] - Writing combined chunk to audio input stream `);
+        // Create temp recording filename and stream
+        server.log.debug(`[ON START]: [${clientIP}][${data.start.call_sid}] - Setting up recording files`);
+        const tempRecordingFilename = getTempRecordingFileName(callMetaData);
+        const tempFilePath = path.join(LOCAL_TEMP_DIR, tempRecordingFilename);
+        
+        // Ensure temp directory exists
+        if (!fs.existsSync(LOCAL_TEMP_DIR)) {
+            await fs.promises.mkdir(LOCAL_TEMP_DIR, { recursive: true });
+        }
 
-        audioInputStream.write(chunk);
-        writeRecordingStream.write(chunk);
-        recordingFileSize.filesize += chunk.byteLength;
+        server.log.debug(`[ON START]: [${clientIP}][${data.start.call_sid}] - Creating write stream for: ${tempFilePath}`);
+        const writeRecordingStream = fs.createWriteStream(tempFilePath);
+        const recordingFileSize = { filesize: 0 };
 
-    });
-    startTranscribe(callMetaData, audioInputStream, socketCallMap, server);
+        // Configure streams
+        server.log.debug(`[ON START]: [${clientIP}][${data.start.call_sid}] - Configuring audio streams`);
+        const highWaterMarkSize = 8000; // 1 second of audio at 8kHz
+        
+        try {
+            const audioInputStream = new PassThrough({ highWaterMark: highWaterMarkSize });
+            const agentBlock = new BlockStream2({ size: 320 }); // 20ms of audio
+            const callerBlock = new BlockStream2({ size: 320 });
+            const combinedStream = new PassThrough({ highWaterMark: highWaterMarkSize });
+            const combinedStreamBlock = new BlockStream2({ size: 640 }); // Combined 20ms from both channels
+
+            server.log.debug(`[ON START]: [${clientIP}][${data.start.call_sid}] - Created audio streams with highWaterMark: ${highWaterMarkSize}`);
+
+            // Set up stream pipeline
+            server.log.debug(`[ON START]: [${clientIP}][${data.start.call_sid}] - Setting up stream pipeline`);
+            combinedStream.pipe(combinedStreamBlock);
+            interleave([agentBlock, callerBlock]).pipe(combinedStream);
+
+            // Create socket call map
+            const socketCallMap: SocketCallData = {
+                callMetadata: callMetaData,
+                audioInputStream,
+                writeRecordingStream,
+                recordingFileSize,
+                startStreamTime: new Date(),
+                agentBlock,
+                callerBlock,
+                combinedStream,
+                combinedStreamBlock,
+                ended: false
+            };
+
+            // Set up error handlers for streams
+            audioInputStream.on('error', (err) => {
+                server.log.error(`[ON START]: [${clientIP}][${data.start.call_sid}] - Audio input stream error:`, err);
+            });
+
+            writeRecordingStream.on('error', (err) => {
+                server.log.error(`[ON START]: [${clientIP}][${data.start.call_sid}] - Recording stream error:`, err);
+            });
+
+            combinedStream.on('error', (err) => {
+                server.log.error(`[ON START]: [${clientIP}][${data.start.call_sid}] - Combined stream error:`, err);
+            });
+
+            combinedStreamBlock.on('error', (err) => {
+                server.log.error(`[ON START]: [${clientIP}][${data.start.call_sid}] - Combined stream block error:`, err);
+            });
+
+            server.log.debug(`[ON START]: [${clientIP}][${data.start.call_sid}] - Adding socket to map`);
+            socketMap.set(ws, socketCallMap);
+
+            // Set up combined stream data handler
+            combinedStreamBlock.on('data', (chunk) => {
+                try {
+                    server.log.debug(`[ON START]: [${clientIP}][${data.start.call_sid}] - Processing combined chunk of size: ${chunk.length}`);
+                    audioInputStream.write(chunk);
+                    writeRecordingStream.write(chunk);
+                    recordingFileSize.filesize += chunk.length;
+                } catch (error) {
+                    server.log.error(`[ON START]: [${clientIP}][${data.start.call_sid}] - Error processing chunk:`, error);
+                }
+            });
+
+            server.log.debug(`[ON START]: [${clientIP}][${data.start.call_sid}] - Writing call start event`);
+            await writeCallStartEvent(callMetaData, server);
+
+            server.log.debug(`[ON START]: [${clientIP}][${data.start.call_sid}] - Starting transcribe`);
+            await startTranscribe(callMetaData, audioInputStream, socketCallMap, server);
+
+            server.log.info(`[ON START]: [${clientIP}][${data.start.call_sid}] - Successfully completed start setup`);
+
+        } catch (streamError) {
+            server.log.error(`[ON START]: [${clientIP}][${data.start.call_sid}] - Error setting up streams:`, streamError);
+            throw streamError;
+        }
+
+    } catch (error) {
+        server.log.error(`[ON START]: [${clientIP}][${data?.start?.call_sid || 'UNKNOWN'}] - Fatal error in onStart:`, {
+            error: normalizeErrorForLogging(error),
+            data: data
+        });
+        // Clean up any partial resources
+        if (ws && socketMap.has(ws)) {
+            socketMap.delete(ws);
+        }
+        throw error; // Re-throw to be handled by the caller
+    }
 };
 
 const onMedia = async (clientIP: string, ws: WebSocket, data: ExotelMediaMessage): Promise<void> => {
