@@ -19,7 +19,7 @@ import {
     LanguageCode,
 } from '@aws-sdk/client-transcribe-streaming';
 
-import { MediaEncoding } from '@aws-sdk/client-transcribe-streaming';
+// import { MediaEncoding } from '@aws-sdk/client-transcribe-streaming';
 import { 
     KinesisClient, 
     PutRecordCommand 
@@ -170,11 +170,12 @@ export const startTranscribe = async (callMetaData: ExotelCallMetaData, audioInp
     // Add Exotel specific configurations
     const tsParams: transcriptionCommandInput<typeof isTCAEnabled> = {
         MediaSampleRateHertz: callMetaData.samplingRate,
-        MediaEncoding: (callMetaData.customParameters?.['encoding'] || 'pcm') as MediaEncoding,
+        MediaEncoding: 'pcm',
+        // MediaEncoding: (callMetaData.customParameters?.['encoding'] || 'pcm') as MediaEncoding,
         AudioStream: transcribeInput()
     };
 
-    // transcribe.ts
+
     if (TRANSCRIBE_LANGUAGE_CODE === 'identify-language') {
         (tsParams as StartStreamTranscriptionCommandInput).IdentifyLanguage = true;
         if (TRANSCRIBE_LANGUAGE_OPTIONS) {
