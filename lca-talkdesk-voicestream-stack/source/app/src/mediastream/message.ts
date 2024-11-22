@@ -112,9 +112,9 @@ export type ExotelMediaMessage = {
     streamSid: string;
     media: {
         chunk: number;
-        track: string; // Add track property
         timestamp: string;
-        payload: string;
+        track: 'inbound' | 'outbound';
+        payload: string; // base64 encoded PCM data
     }
 };
 
