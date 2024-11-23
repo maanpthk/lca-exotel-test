@@ -232,17 +232,17 @@ const onStart = async (clientIP: string, ws: WebSocket, data: ExotelStartMessage
         const highWaterMarkSize = 8000; // 1 second of audio at 8kHz
 
         try {
-            const audioInputStream = new PassThrough({ highWaterMark: highWaterMarkSize });
-            const agentBlock = new BlockStream({ size: 320 }); // 20ms of audio
+            const audioInputStream = new PassThrough({ highWaterMark: 8000 }); // 1 second buffer
+            const agentBlock = new BlockStream({ size: 320 }); // 20ms blocks
             const callerBlock = new BlockStream({ size: 320 });
             const combinedStream = new PassThrough({ highWaterMark: highWaterMarkSize });
-            const combinedStreamBlock = new BlockStream({ size: 640 }); // Combined 20ms from both channels
+            const combinedStreamBlock = new BlockStream2({ size: 640 }); // Combined 20ms from both channels
 
             server.log.debug(`[ON START]: [${clientIP}][${data.start.call_sid}] - Created audio streams with highWaterMark: ${highWaterMarkSize}`);
 
-            // Set up stream pipeline
-            combinedStream.pipe(combinedStreamBlock);
-            interleave([agentBlock, callerBlock]).pipe(combinedStream);
+            // Ensure proper piping
+            agentBlock.pipe(audioInputStream);
+            callerBlock.pipe(audioInputStream);
 
             // Create socket call map
             const socketCallMap: SocketCallData = {
@@ -324,30 +324,25 @@ const onMedia = async (clientIP: string, ws: WebSocket, data: ExotelMediaMessage
         callid = socketData.callMetadata.callId;
     }
 
-    server.log.debug(`[ON MEDIA]: [${clientIP}][${callid}] - Received Media chunk ${data.media.chunk}, timestamp: ${data.media.timestamp}`);
+    server.log.debug(`[ON MEDIA]: [${clientIP}][${callid}] - Received Media chunk ${data.media.chunk}`);
 
-    if (socketData !== undefined && socketData.audioInputStream !== undefined &&
-        socketData.writeRecordingStream !== undefined && socketData.recordingFileSize !== undefined) {
-        
+    if (socketData !== undefined && socketData.audioInputStream !== undefined) {
         try {
-            // Decode base64 payload directly since it's already in PCM format
+            // Decode base64 payload
             const pcmBuffer = Buffer.from(data.media.payload, 'base64');
             
-            server.log.debug(`[ON MEDIA]: [${clientIP}][${callid}] - Decoded PCM buffer size: ${pcmBuffer.length} bytes`);
+            server.log.debug(`[ON MEDIA]: [${clientIP}][${callid}] - Processing audio chunk of size: ${pcmBuffer.length}`);
 
-            // Since the audio is already in PCM format (16-bit, 8kHz, mono), we don't need ulaw conversion
-            if (data.media.track === 'inbound') {
-                server.log.debug(`[ON MEDIA]: [${clientIP}][${callid}] - Writing inbound audio chunk`);
-                socketData.agentBlock.write(pcmBuffer);
-            } else if (data.media.track === 'outbound') {
-                server.log.debug(`[ON MEDIA]: [${clientIP}][${callid}] - Writing outbound audio chunk`);
-                socketData.callerBlock.write(pcmBuffer);
-            }
+            // Write to both agent and caller blocks to ensure audio flow
+            socketData.agentBlock.write(pcmBuffer);
+            socketData.callerBlock.write(pcmBuffer);
+
+            // Ensure audio is flowing to transcribe
+            socketData.audioInputStream.write(pcmBuffer);
 
         } catch (error) {
             server.log.error(`[ON MEDIA]: [${clientIP}][${callid}] - Error processing media chunk: ${normalizeErrorForLogging(error)}`);
         }
-
     } else {
         server.log.error(`[ON MEDIA]: [${clientIP}][${callid}] - Error: received 'media' event before receiving 'start' event`);
     }

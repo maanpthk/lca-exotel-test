@@ -137,42 +137,44 @@ export const writeCallRecordingEvent = async (callMetaData: CallMetaData, record
 
 export const startTranscribe = async (callMetaData: ExotelCallMetaData, audioInputStream: stream.PassThrough, socketCallMap: ExotelSocketCallData, server: FastifyInstance) => {
     
-
     const transcribeInput = async function* () {
         if (isTCAEnabled) {
+            // Simplified channel definitions for Exotel
             const channel0: ChannelDefinition = { ChannelId:0, ParticipantRole: ParticipantRole.CUSTOMER };
             const channel1: ChannelDefinition = { ChannelId:1, ParticipantRole: ParticipantRole.AGENT };
-            const channel_definitions: ChannelDefinition [] = [];
-            channel_definitions.push(channel0);
-            channel_definitions.push(channel1);
-            const configuration_event: ConfigurationEvent = { ChannelDefinitions: channel_definitions };
+            const channel_definitions: ChannelDefinition [] = [channel0, channel1];
+            
+            const configuration_event: ConfigurationEvent = { 
+                ChannelDefinitions: channel_definitions
+            };
+
             if (IS_TCA_POST_CALL_ANALYTICS_ENABLED) {
                 configuration_event.PostCallAnalyticsSettings = {
                     OutputLocation: tcaOutputLocation,
                     DataAccessRoleArn: TCA_DATA_ACCESS_ROLE_ARN
                 };
                 if (IS_CONTENT_REDACTION_ENABLED) {
-                    configuration_event.PostCallAnalyticsSettings.ContentRedactionOutput = POST_CALL_CONTENT_REDACTION_OUTPUT as ContentRedactionOutput;
+                    configuration_event.PostCallAnalyticsSettings.ContentRedactionOutput = 
+                        POST_CALL_CONTENT_REDACTION_OUTPUT as ContentRedactionOutput;
                 }
             }
             yield { ConfigurationEvent: configuration_event };
         }
-        for await (const chunk of audioInputStream ) {
+
+        // Process audio chunks from input stream
+        for await (const chunk of audioInputStream) {
+            // Add debug logging
+            server.log.debug(`[TRANSCRIBING]: [${callMetaData.callId}] Processing audio chunk of size: ${chunk.length}`);
             yield { AudioEvent: { AudioChunk: chunk } };
         }
-        // yield { AudioEvent: { AudioChunk:Uint8Array.from(new Array(2).fill([0x00, 0x00]).flat()), EndOfStream: true } };
     };
 
-    let tsStream;
-    let outputCallAnalyticsStream: AsyncIterable<CallAnalyticsTranscriptResultStream> | undefined;
-    let outputTranscriptStream: AsyncIterable<TranscriptResultStream> | undefined;
-    
-    // Add Exotel specific configurations
+    // Configure transcribe parameters specifically for Exotel
     const tsParams: transcriptionCommandInput<typeof isTCAEnabled> = {
-        MediaSampleRateHertz: callMetaData.samplingRate,
-        MediaEncoding: 'pcm',
-        // MediaEncoding: (callMetaData.customParameters?.['encoding'] || 'pcm') as MediaEncoding,
-        AudioStream: transcribeInput()
+        MediaSampleRateHertz: callMetaData.samplingRate || 8000, // Default to 8kHz for Exotel
+        MediaEncoding: 'pcm', // Exotel sends PCM
+        AudioStream: transcribeInput(),
+        LanguageCode: TRANSCRIBE_LANGUAGE_CODE as LanguageCode
     };
 
 
@@ -252,7 +254,8 @@ export const startTranscribe = async (callMetaData: ExotelCallMetaData, audioInp
     try {
         if (tsStream) {
             for await (const event of tsStream) {
-                // console.log('Event ', event);
+                server.log.debug(`[TRANSCRIBING]: [${callMetaData.callId}] Received transcription event`);
+                
                 if (event.TranscriptEvent) {
                     const message: TranscriptEvent = event.TranscriptEvent;
                     await writeTranscriptionSegment(message, callMetaData.callId, server);
@@ -264,15 +267,11 @@ export const startTranscribe = async (callMetaData: ExotelCallMetaData, audioInp
                     await writeAddTranscriptSegmentEvent(event.UtteranceEvent, undefined, callMetaData.callId, server);
                 }
             }
-
         } else {
             server.log.error(`[TRANSCRIBING]: [${callMetaData.callId}] - Transcribe stream is empty`);
         }
     } catch (error) {
         server.log.error(`[TRANSCRIBING]: [${callMetaData.callId}] - Error processing Transcribe results stream ${normalizeErrorForLogging(error)}`);
-        
-    } finally {
-        // writeCallEndEvent(callMetaData);
     }
 };
 
