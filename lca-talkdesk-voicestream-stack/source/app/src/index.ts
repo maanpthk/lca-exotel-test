@@ -45,7 +45,7 @@ import {
 } from './utils';
 import { PassThrough } from 'stream';
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const interleave = require('interleave-stream');
+// const interleave = require('interleave-stream');
 
 const AWS_REGION = process.env['AWS_REGION'] || 'us-east-1';
 const RECORDINGS_BUCKET_NAME = process.env['RECORDINGS_BUCKET_NAME'] || undefined;
