@@ -147,10 +147,6 @@ export const startTranscribe = async (callMetaData: ExotelCallMetaData, audioInp
             const configuration_event: ConfigurationEvent = { 
                 ChannelDefinitions: channel_definitions
             };
-            // Declare variables at the right scope
-            let tsStream: stream.Readable | undefined;
-            let outputCallAnalyticsStream: AsyncIterable<CallAnalyticsTranscriptResultStream> | undefined;
-            let outputTranscriptStream: AsyncIterable<TranscriptResultStream> | undefined;
 
             if (IS_TCA_POST_CALL_ANALYTICS_ENABLED) {
                 configuration_event.PostCallAnalyticsSettings = {
@@ -172,6 +168,10 @@ export const startTranscribe = async (callMetaData: ExotelCallMetaData, audioInp
             yield { AudioEvent: { AudioChunk: chunk } };
         }
     };
+    // Declare variables at the right scope
+    let tsStream: stream.Readable | undefined;
+    let outputCallAnalyticsStream: AsyncIterable<CallAnalyticsTranscriptResultStream> | undefined;
+    let outputTranscriptStream: AsyncIterable<TranscriptResultStream> | undefined;
 
     // Configure transcribe parameters specifically for Exotel
     const tsParams: transcriptionCommandInput<typeof isTCAEnabled> = {
