@@ -236,7 +236,7 @@ const onStart = async (clientIP: string, ws: WebSocket, data: ExotelStartMessage
             const agentBlock = new BlockStream({ size: 320 }); // 20ms blocks
             const callerBlock = new BlockStream({ size: 320 });
             const combinedStream = new PassThrough({ highWaterMark: highWaterMarkSize });
-            const combinedStreamBlock = new BlockStream2({ size: 640 }); // Combined 20ms from both channels
+            const combinedStreamBlock = new BlockStream({ size: 640 }); // Combined 20ms from both channels
 
             server.log.debug(`[ON START]: [${clientIP}][${data.start.call_sid}] - Created audio streams with highWaterMark: ${highWaterMarkSize}`);
 

@@ -147,6 +147,10 @@ export const startTranscribe = async (callMetaData: ExotelCallMetaData, audioInp
             const configuration_event: ConfigurationEvent = { 
                 ChannelDefinitions: channel_definitions
             };
+            // Declare variables at the right scope
+            let tsStream: stream.Readable | undefined;
+            let outputCallAnalyticsStream: AsyncIterable<CallAnalyticsTranscriptResultStream> | undefined;
+            let outputTranscriptStream: AsyncIterable<TranscriptResultStream> | undefined;
 
             if (IS_TCA_POST_CALL_ANALYTICS_ENABLED) {
                 configuration_event.PostCallAnalyticsSettings = {
@@ -232,7 +236,7 @@ export const startTranscribe = async (callMetaData: ExotelCallMetaData, audioInp
         (tsParams as StartStreamTranscriptionCommandInput).NumberOfChannels = 2;
         try {
             const response = await transcribeClient.send(
-                new StartStreamTranscriptionCommand(tsParams)
+                new StartStreamTranscriptionCommand(tsParams as StartStreamTranscriptionCommandInput)
             );
             server.log.debug(`[TRANSCRIBING]: [${callMetaData.callId}] === Received Initial response from Transcribe. Session Id: ${response.SessionId} ===`);
 
@@ -245,13 +249,13 @@ export const startTranscribe = async (callMetaData: ExotelCallMetaData, audioInp
     
     socketCallMap.startStreamTime = new Date();
 
-    if (outputCallAnalyticsStream) {
-        tsStream = stream.Readable.from(outputCallAnalyticsStream);
-    } else if (outputTranscriptStream) {
-        tsStream = stream.Readable.from(outputTranscriptStream);
-    }
-
     try {
+        if (outputCallAnalyticsStream) {
+            tsStream = stream.Readable.from(outputCallAnalyticsStream);
+        } else if (outputTranscriptStream) {
+            tsStream = stream.Readable.from(outputTranscriptStream);
+        }
+
         if (tsStream) {
             for await (const event of tsStream) {
                 server.log.debug(`[TRANSCRIBING]: [${callMetaData.callId}] Received transcription event`);
