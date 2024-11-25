@@ -230,18 +230,8 @@ const onStart = async (clientIP: string, ws: WebSocket, data: ExotelStartMessage
         // Configure streams
         server.log.debug(`[ON START]: [${clientIP}][${data.start.call_sid}] - Configuring audio streams`);
         // const highWaterMarkSize = (callMetaData.samplingRate / 10) * 2;  //removed *2 since single
-        // const highWaterMarkSize = 32000;  //removed *2 since single
-        // Calculate buffer sizes for 8kHz mono PCM
-        // For 20ms chunks: 8000 samples/sec * 0.02 sec * 2 bytes/sample = 320 bytes
-        const chunkSizeInMs = 20; // 20ms is common for real-time audio
-        const bytesPerSample = 2; // 16-bit = 2 bytes
-        const samplesPerChunk = Math.ceil((callMetaData.samplingRate * chunkSizeInMs) / 1000);
-        const chunkSize = samplesPerChunk * bytesPerSample;
+        const highWaterMarkSize = 32000;  //removed *2 since single
 
-        // Set highWaterMark to handle multiple chunks
-        // Buffer ~100ms worth of audio (5 chunks of 20ms)
-        const highWaterMarkSize = chunkSize * 5;
-        
 
         try {
             // Simplified stream setup for mono
@@ -250,7 +240,17 @@ const onStart = async (clientIP: string, ws: WebSocket, data: ExotelStartMessage
                 objectMode: false
             });
 
+<<<<<<< HEAD
             // Create socket call map with simplified structure
+=======
+            server.log.debug(`[ON START]: [${clientIP}][${data.start.call_sid}] - Created audio streams with highWaterMark: ${highWaterMarkSize}`);
+
+            // Ensure proper piping
+            agentBlock.pipe(audioInputStream);
+            callerBlock.pipe(audioInputStream);
+
+            // Create socket call map
+>>>>>>> parent of c9ab88a (modified watermarks for monochannel)
             const socketCallMap: SocketCallData = {
                 callMetadata: callMetaData,
                 audioInputStream,

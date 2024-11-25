@@ -101,18 +101,7 @@ export type SocketCallData = {
     ended: boolean,
     speakerProfiles?: Map<string, SpeakerProfile> // Add speaker profiles
 };
-export type SocketCallData = {
-    callMetadata: CallMetaData,
-    audioInputStream?: stream.PassThrough,
-    writeRecordingStream?: WriteStream,
-    recordingFileSize?: { filesize: number },
-    startStreamTime: Date,
-    agentBlock: BlockStream2,
-    callerBlock: BlockStream2,
-    combinedStream: PassThrough,
-    combinedStreamBlock: BlockStream2,
-    ended: boolean,
-}
+
 // Update ExotelCallMetaData
 export interface ExotelCallMetaData extends CallMetaData {
     customParameters?: {[key: string]: string};
