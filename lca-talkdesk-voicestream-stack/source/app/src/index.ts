@@ -240,29 +240,6 @@ const onStart = async (clientIP: string, ws: WebSocket, data: ExotelStartMessage
                 objectMode: false
             });
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-            // Create socket call map with simplified structure
-=======
-=======
->>>>>>> parent of c9ab88a (modified watermarks for monochannel)
-            server.log.debug(`[ON START]: [${clientIP}][${data.start.call_sid}] - Created audio streams with highWaterMark: ${highWaterMarkSize}`);
-
-            // Ensure proper piping
-            agentBlock.pipe(audioInputStream);
-            callerBlock.pipe(audioInputStream);
-
-            // Create socket call map
->>>>>>> parent of c9ab88a (modified watermarks for monochannel)
-            const socketCallMap: SocketCallData = {
-                callMetadata: callMetaData,
-                audioInputStream,
-                writeRecordingStream,
-                recordingFileSize,
-                startStreamTime: new Date(),
-                ended: false
-            };
-
             // Set up error handler
             audioInputStream.on('error', (err: Error) => {
                 server.log.error(`[ON START]: [${clientIP}][${data.start.call_sid}] - Audio input stream error:`, err);
