@@ -229,7 +229,7 @@ const onStart = async (clientIP: string, ws: WebSocket, data: ExotelStartMessage
 
         // Configure streams
         server.log.debug(`[ON START]: [${clientIP}][${data.start.call_sid}] - Configuring audio streams`);
-        const highWaterMarkSize = (callMetaData.samplingRate / 10) * 2 * 2; 
+        const highWaterMarkSize = (callMetaData.samplingRate / 10) * 2;  //removed *2 since single channel
 
 
         try {
