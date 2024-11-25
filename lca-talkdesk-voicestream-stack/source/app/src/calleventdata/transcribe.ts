@@ -74,8 +74,8 @@ const IS_TCA_POST_CALL_ANALYTICS_ENABLED = (process.env['IS_TCA_POST_CALL_ANALYT
 const POST_CALL_CONTENT_REDACTION_OUTPUT = process.env['POST_CALL_CONTENT_REDACTION_OUTPUT'] || 'redacted';
 // Add new environment variable for diarization
 const ENABLE_SPEAKER_DIARIZATION = (process.env['ENABLE_SPEAKER_DIARIZATION'] || 'true') === 'true';
-const MAX_SPEAKERS = parseInt(process.env['MAX_SPEAKERS'] || '2', 10);
-const MIN_SPEAKER_CONFIDENCE = parseFloat(process.env['MIN_SPEAKER_CONFIDENCE'] || '0.5');
+// const MAX_SPEAKERS = parseInt(process.env['MAX_SPEAKERS'] || '2', 10);
+// const MIN_SPEAKER_CONFIDENCE = parseFloat(process.env['MIN_SPEAKER_CONFIDENCE'] || '0.5');
 
 const savePartial = (process.env['SAVE_PARTIAL_TRANSCRIPTS'] || 'true') === 'true';
 const kdsStreamName = process.env['KINESIS_STREAM_NAME'] || '';
@@ -176,15 +176,15 @@ export const startTranscribe = async (callMetaData: ExotelCallMetaData, audioInp
     let outputCallAnalyticsStream: AsyncIterable<CallAnalyticsTranscriptResultStream> | undefined;
     let outputTranscriptStream: AsyncIterable<TranscriptResultStream> | undefined;
 
-   // Configure transcribe parameters for mono audio with diarization
-   const tsParams: transcriptionCommandInput<typeof isTCAEnabled> = {
-    MediaSampleRateHertz: callMetaData.samplingRate || 8000,
-    MediaEncoding: 'pcm',
-    AudioStream: transcribeInput(),
-    LanguageCode: TRANSCRIBE_LANGUAGE_CODE as LanguageCode,
-    // Add diarization settings
-    ShowSpeakerLabel: ENABLE_SPEAKER_DIARIZATION
-};
+    // Configure transcribe parameters for mono audio with diarization
+    const tsParams: transcriptionCommandInput<typeof isTCAEnabled> = {
+     MediaSampleRateHertz: callMetaData.samplingRate || 8000,
+     MediaEncoding: 'pcm',
+     AudioStream: transcribeInput(),
+     LanguageCode: TRANSCRIBE_LANGUAGE_CODE as LanguageCode,
+     // Add diarization settings
+     ShowSpeakerLabel: ENABLE_SPEAKER_DIARIZATION
+    };
 
 
     if (TRANSCRIBE_LANGUAGE_CODE === 'identify-language') {

@@ -225,7 +225,7 @@ const onStart = async (clientIP: string, ws: WebSocket, data: ExotelStartMessage
 
         server.log.debug(`[ON START]: [${clientIP}][${data.start.call_sid}] - Creating write stream for: ${tempFilePath}`);
         const writeRecordingStream = fs.createWriteStream(tempFilePath);
-        const recordingFileSize = { filesize: 0 };
+        
 
         // Configure streams
         server.log.debug(`[ON START]: [${clientIP}][${data.start.call_sid}] - Configuring audio streams`);
@@ -254,14 +254,6 @@ const onStart = async (clientIP: string, ws: WebSocket, data: ExotelStartMessage
             // Set up error handler
             audioInputStream.on('error', (err: Error) => {
                 server.log.error(`[ON START]: [${clientIP}][${data.start.call_sid}] - Audio input stream error:`, err);
-            });
-
-            // Optional: Add buffer monitoring
-            audioInputStream.on('data', (chunk: Buffer) => {
-                const bufferLevel = audioInputStream.readableLength;
-                if (bufferLevel > highWaterMarkSize * 0.8) {
-                    server.log.warn(`[BUFFER WARNING]: [${data.start.call_sid}] High buffer level: ${bufferLevel} bytes`);
-                }
             });
 
             socketMap.set(ws, socketData);
