@@ -45,7 +45,7 @@ import {
 } from './utils';
 import { PassThrough } from 'stream';
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-// const interleave = require('interleave-stream');
+const interleave = require('interleave-stream');
 
 const AWS_REGION = process.env['AWS_REGION'] || 'us-east-1';
 const RECORDINGS_BUCKET_NAME = process.env['RECORDINGS_BUCKET_NAME'] || undefined;
@@ -229,14 +229,18 @@ const onStart = async (clientIP: string, ws: WebSocket, data: ExotelStartMessage
 
         // Configure streams
         server.log.debug(`[ON START]: [${clientIP}][${data.start.call_sid}] - Configuring audio streams`);
-        const highWaterMarkSize = 8000; // 1 second of audio at 8kHz
+        const highWaterMarkSize = (callMetaData.samplingRate / 10) * 2 * 2; 
+
 
         try {
-            const audioInputStream = new PassThrough({ highWaterMark: 8000 }); // 1 second buffer
-            const agentBlock = new BlockStream({ size: 320 }); // 20ms blocks
-            const callerBlock = new BlockStream({ size: 320 });
-            const combinedStream = new PassThrough({ highWaterMark: highWaterMarkSize });
-            const combinedStreamBlock = new BlockStream({ size: 640 }); // Combined 20ms from both channels
+            const audioInputStream = new PassThrough({ highWaterMark: highWaterMarkSize });
+            const agentBlock = new BlockStream({ size: 2 });
+            const callerBlock = new BlockStream({ size: 2 });
+            const combinedStream = new PassThrough();
+            const combinedStreamBlock = new BlockStream({ size: 4 });
+            
+            combinedStream.pipe(combinedStreamBlock);
+            interleave([agentBlock, callerBlock]).pipe(combinedStream);
 
             server.log.debug(`[ON START]: [${clientIP}][${data.start.call_sid}] - Created audio streams with highWaterMark: ${highWaterMarkSize}`);
 
