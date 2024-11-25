@@ -230,8 +230,18 @@ const onStart = async (clientIP: string, ws: WebSocket, data: ExotelStartMessage
         // Configure streams
         server.log.debug(`[ON START]: [${clientIP}][${data.start.call_sid}] - Configuring audio streams`);
         // const highWaterMarkSize = (callMetaData.samplingRate / 10) * 2;  //removed *2 since single
-        const highWaterMarkSize = 32000;  //removed *2 since single
+        // const highWaterMarkSize = 32000;  //removed *2 since single
+        // Calculate buffer sizes for 8kHz mono PCM
+        // For 20ms chunks: 8000 samples/sec * 0.02 sec * 2 bytes/sample = 320 bytes
+        const chunkSizeInMs = 20; // 20ms is common for real-time audio
+        const bytesPerSample = 2; // 16-bit = 2 bytes
+        const samplesPerChunk = Math.ceil((callMetaData.samplingRate * chunkSizeInMs) / 1000);
+        const chunkSize = samplesPerChunk * bytesPerSample;
 
+        // Set highWaterMark to handle multiple chunks
+        // Buffer ~100ms worth of audio (5 chunks of 20ms)
+        const highWaterMarkSize = chunkSize * 5;
+        
 
         try {
             const audioInputStream = new PassThrough({ highWaterMark: highWaterMarkSize });
@@ -243,7 +253,11 @@ const onStart = async (clientIP: string, ws: WebSocket, data: ExotelStartMessage
             combinedStream.pipe(combinedStreamBlock);
             interleave([agentBlock, callerBlock]).pipe(combinedStream);
 
-            server.log.debug(`[ON START]: [${clientIP}][${data.start.call_sid}] - Created audio streams with highWaterMark: ${highWaterMarkSize}`);
+            server.log.debug(`[ON START]: [${clientIP}][${data.start.call_sid}] - Configured audio streams with:
+                Sample Rate: ${callMetaData.samplingRate} Hz
+                Bytes per Sample: 2 (16-bit PCM)
+                High Water Mark: ${highWaterMarkSize} bytes
+            `);
 
             // Ensure proper piping
             agentBlock.pipe(audioInputStream);
