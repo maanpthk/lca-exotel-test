@@ -43,6 +43,7 @@ export type CallRecordingEvent = CallEventBase<'ADD_S3_RECORDING_URL'> & {
     RecordingUrl: string,
 };
 
+// Update AddTranscriptSegmentEvent to include speaker diarization info
 export type AddTranscriptSegmentEvent = CallEventBase<'ADD_TRANSCRIPT_SEGMENT'> & {
     Channel?: string,
     SegmentId?: string,
@@ -65,6 +66,7 @@ export type SpeakerProfile = {
     totalSpeakingTime: number,
     utteranceCount: number
 };
+
 
 export type AddCallCategoryEvent = CallEventBase<'ADD_CALL_CATEGORY'> & {
     CategoryEvent: CategoryEvent,
@@ -99,6 +101,18 @@ export type SocketCallData = {
     ended: boolean,
     speakerProfiles?: Map<string, SpeakerProfile> // Add speaker profiles
 };
+export type SocketCallData = {
+    callMetadata: CallMetaData,
+    audioInputStream?: stream.PassThrough,
+    writeRecordingStream?: WriteStream,
+    recordingFileSize?: { filesize: number },
+    startStreamTime: Date,
+    agentBlock: BlockStream2,
+    callerBlock: BlockStream2,
+    combinedStream: PassThrough,
+    combinedStreamBlock: BlockStream2,
+    ended: boolean,
+}
 // Update ExotelCallMetaData
 export interface ExotelCallMetaData extends CallMetaData {
     customParameters?: {[key: string]: string};
@@ -110,7 +124,7 @@ export interface ExotelCallMetaData extends CallMetaData {
         speakerMapping?: Record<string, 'AGENT' | 'CALLER'>;
     };
 }
-
+  
 // Update ExotelSocketCallData
 export interface ExotelSocketCallData extends SocketCallData {
     callMetadata: ExotelCallMetaData;

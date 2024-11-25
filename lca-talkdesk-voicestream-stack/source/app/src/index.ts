@@ -4,7 +4,7 @@
 import fastify from 'fastify';
 import websocket from '@fastify/websocket';
 import WebSocket from 'ws'; // type structure for the websocket object used by fastify/websocket
-import BlockStream from 'block-stream2';
+// import BlockStream from 'block-stream2';
 import os from 'os';
 import fs from 'fs';
 import path from 'path';
@@ -45,7 +45,7 @@ import {
 } from './utils';
 import { PassThrough } from 'stream';
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const interleave = require('interleave-stream');
+// const interleave = require('interleave-stream');
 
 const AWS_REGION = process.env['AWS_REGION'] || 'us-east-1';
 const RECORDINGS_BUCKET_NAME = process.env['RECORDINGS_BUCKET_NAME'] || undefined;
@@ -244,70 +244,36 @@ const onStart = async (clientIP: string, ws: WebSocket, data: ExotelStartMessage
         
 
         try {
-            const audioInputStream = new PassThrough({ highWaterMark: highWaterMarkSize });
-            const agentBlock = new BlockStream({ size: 2 });
-            const callerBlock = new BlockStream({ size: 2 });
-            const combinedStream = new PassThrough();
-            const combinedStreamBlock = new BlockStream({ size: 4 });
-            
-            combinedStream.pipe(combinedStreamBlock);
-            interleave([agentBlock, callerBlock]).pipe(combinedStream);
+            // Simplified stream setup for mono
+            const audioInputStream = new PassThrough({ 
+                highWaterMark: highWaterMarkSize,
+                objectMode: false
+            });
 
-            server.log.debug(`[ON START]: [${clientIP}][${data.start.call_sid}] - Configured audio streams with:
-                Sample Rate: ${callMetaData.samplingRate} Hz
-                Bytes per Sample: 2 (16-bit PCM)
-                High Water Mark: ${highWaterMarkSize} bytes
-            `);
-
-            // Ensure proper piping
-            agentBlock.pipe(audioInputStream);
-            callerBlock.pipe(audioInputStream);
-
-            // Create socket call map
+            // Create socket call map with simplified structure
             const socketCallMap: SocketCallData = {
                 callMetadata: callMetaData,
                 audioInputStream,
                 writeRecordingStream,
                 recordingFileSize,
                 startStreamTime: new Date(),
-                agentBlock,
-                callerBlock,
-                combinedStream,
-                combinedStreamBlock,
                 ended: false
             };
 
-            // Set up error handlers for streams with proper type annotations
+            // Set up error handler
             audioInputStream.on('error', (err: Error) => {
                 server.log.error(`[ON START]: [${clientIP}][${data.start.call_sid}] - Audio input stream error:`, err);
             });
 
-            writeRecordingStream.on('error', (err: Error) => {
-                server.log.error(`[ON START]: [${clientIP}][${data.start.call_sid}] - Recording stream error:`, err);
-            });
-
-            combinedStream.on('error', (err: Error) => {
-                server.log.error(`[ON START]: [${clientIP}][${data.start.call_sid}] - Combined stream error:`, err);
-            });
-
-            combinedStreamBlock.on('error', (err: Error) => {
-                server.log.error(`[ON START]: [${clientIP}][${data.start.call_sid}] - Combined stream block error:`, err);
-            });
-
-            server.log.debug(`[ON START]: [${clientIP}][${data.start.call_sid}] - Adding socket to map`);
-            socketMap.set(ws, socketCallMap);
-
-            // Set up combined stream data handler with proper type annotation
-            combinedStreamBlock.on('data', (chunk: Buffer) => {
-                try {
-                    server.log.debug(`[ON START]: [${clientIP}][${data.start.call_sid}] - Processing combined chunk of size: ${chunk.length}`);
-                    audioInputStream.write(chunk);
-                    writeRecordingStream.write(chunk);
-                    recordingFileSize.filesize += chunk.length;
-                } catch (error) {
-                    server.log.error(`[ON START]: [${clientIP}][${data.start.call_sid}] - Error processing chunk:`, error);
+            // Optional: Add buffer monitoring
+            audioInputStream.on('data', (chunk: Buffer) => {
+                const bufferLevel = audioInputStream.readableLength;
+                if (bufferLevel > highWaterMarkSize * 0.8) {
+                    server.log.warn(`[BUFFER WARNING]: [${data.start.call_sid}] High buffer level: ${bufferLevel} bytes`);
                 }
             });
+
+            socketMap.set(ws, socketCallMap);
 
             server.log.debug(`[ON START]: [${clientIP}][${data.start.call_sid}] - Writing call start event`);
             await writeCallStartEvent(callMetaData, server);
@@ -343,8 +309,6 @@ const onMedia = async (clientIP: string, ws: WebSocket, data: ExotelMediaMessage
         callid = socketData.callMetadata.callId;
     }
 
-    server.log.debug(`[ON MEDIA]: [${clientIP}][${callid}] - Received Media chunk ${data.media.chunk}`);
-
     if (socketData !== undefined && socketData.audioInputStream !== undefined) {
         try {
             // Decode base64 payload
@@ -352,12 +316,14 @@ const onMedia = async (clientIP: string, ws: WebSocket, data: ExotelMediaMessage
             
             server.log.debug(`[ON MEDIA]: [${clientIP}][${callid}] - Processing audio chunk of size: ${pcmBuffer.length}`);
 
-            // Write to both agent and caller blocks to ensure audio flow
-            socketData.agentBlock.write(pcmBuffer);
-            socketData.callerBlock.write(pcmBuffer);
-
-            // Ensure audio is flowing to transcribe
+            // Write directly to audioInputStream
             socketData.audioInputStream.write(pcmBuffer);
+
+            // Write to recording stream if enabled
+            if (socketData.writeRecordingStream) {
+                socketData.writeRecordingStream.write(pcmBuffer);
+                socketData.recordingFileSize.filesize += pcmBuffer.length;
+            }
 
         } catch (error) {
             server.log.error(`[ON MEDIA]: [${clientIP}][${callid}] - Error processing media chunk: ${normalizeErrorForLogging(error)}`);
@@ -368,7 +334,6 @@ const onMedia = async (clientIP: string, ws: WebSocket, data: ExotelMediaMessage
 };
 
 const endCall = async (ws: WebSocket, callMetaData: CallMetaData|undefined, socketData: SocketCallData): Promise<void> => {
-    
     if (callMetaData === undefined) {
         callMetaData = socketData.callMetadata;
     }
@@ -376,8 +341,8 @@ const endCall = async (ws: WebSocket, callMetaData: CallMetaData|undefined, sock
     if (socketData !== undefined && socketData.ended === false) {
         if (socketData.audioInputStream !== undefined && socketData.writeRecordingStream !== undefined &&
             socketData.recordingFileSize !== undefined) {
-            socketData.agentBlock.end();
-            socketData.callerBlock.end();
+            
+            socketData.audioInputStream.end();
             socketData.writeRecordingStream.end();
 
             socketData.ended = true;

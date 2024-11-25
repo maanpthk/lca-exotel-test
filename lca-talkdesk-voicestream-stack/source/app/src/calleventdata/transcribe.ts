@@ -143,13 +143,14 @@ export const startTranscribe = async (callMetaData: ExotelCallMetaData, audioInp
     
     const transcribeInput = async function* () {
         if (isTCAEnabled) {
-            // Simplified channel definitions for Exotel
-            const channel0: ChannelDefinition = { ChannelId:0, ParticipantRole: ParticipantRole.CUSTOMER };
-            const channel1: ChannelDefinition = { ChannelId:1, ParticipantRole: ParticipantRole.AGENT };
-            const channel_definitions: ChannelDefinition [] = [channel0, channel1];
+            // For Call Analytics, use single channel configuration
+            const channel0: ChannelDefinition = { 
+                ChannelId: 0, 
+                ParticipantRole: ParticipantRole.CUSTOMER 
+            };
             
             const configuration_event: ConfigurationEvent = { 
-                ChannelDefinitions: channel_definitions
+                ChannelDefinitions: [channel0] // Single channel
             };
 
             if (IS_TCA_POST_CALL_ANALYTICS_ENABLED) {
@@ -165,9 +166,7 @@ export const startTranscribe = async (callMetaData: ExotelCallMetaData, audioInp
             yield { ConfigurationEvent: configuration_event };
         }
 
-        // Process audio chunks from input stream
         for await (const chunk of audioInputStream) {
-            // Add debug logging
             server.log.debug(`[TRANSCRIBING]: [${callMetaData.callId}] Processing audio chunk of size: ${chunk.length}`);
             yield { AudioEvent: { AudioChunk: chunk } };
         }
