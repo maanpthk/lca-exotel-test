@@ -72,6 +72,10 @@ const RECORDINGS_BUCKET_NAME = process.env['RECORDINGS_BUCKET_NAME'] || null;
 const IS_TCA_POST_CALL_ANALYTICS_ENABLED = (process.env['IS_TCA_POST_CALL_ANALYTICS_ENABLED'] || 'false') === 'true';
 // optional - when redaction is enabled, choose 'redacted' only (dafault), or 'redacted_and_unredacted' for both
 const POST_CALL_CONTENT_REDACTION_OUTPUT = process.env['POST_CALL_CONTENT_REDACTION_OUTPUT'] || 'redacted';
+// Add new environment variable for diarization
+const ENABLE_SPEAKER_DIARIZATION = (process.env['ENABLE_SPEAKER_DIARIZATION'] || 'true') === 'true';
+const MAX_SPEAKERS = parseInt(process.env['MAX_SPEAKERS'] || '2', 10);
+const MIN_SPEAKER_CONFIDENCE = parseFloat(process.env['MIN_SPEAKER_CONFIDENCE'] || '0.5');
 
 const savePartial = (process.env['SAVE_PARTIAL_TRANSCRIPTS'] || 'true') === 'true';
 const kdsStreamName = process.env['KINESIS_STREAM_NAME'] || '';
@@ -173,13 +177,17 @@ export const startTranscribe = async (callMetaData: ExotelCallMetaData, audioInp
     let outputCallAnalyticsStream: AsyncIterable<CallAnalyticsTranscriptResultStream> | undefined;
     let outputTranscriptStream: AsyncIterable<TranscriptResultStream> | undefined;
 
-    // Configure transcribe parameters specifically for Exotel
-    const tsParams: transcriptionCommandInput<typeof isTCAEnabled> = {
-        MediaSampleRateHertz: callMetaData.samplingRate || 8000, // Default to 8kHz for Exotel
-        MediaEncoding: 'pcm', // Exotel sends PCM
-        AudioStream: transcribeInput(),
-        LanguageCode: TRANSCRIBE_LANGUAGE_CODE as LanguageCode
-    };
+   // Configure transcribe parameters for mono audio with diarization
+   const tsParams: transcriptionCommandInput<typeof isTCAEnabled> = {
+    MediaSampleRateHertz: callMetaData.samplingRate || 8000,
+    MediaEncoding: 'pcm',
+    AudioStream: transcribeInput(),
+    LanguageCode: TRANSCRIBE_LANGUAGE_CODE as LanguageCode,
+    // Add diarization settings
+    EnableSpeakerDiarization: ENABLE_SPEAKER_DIARIZATION,
+    MaxSpeakers: MAX_SPEAKERS,
+    ShowSpeakerLabels: true
+};
 
 
     if (TRANSCRIBE_LANGUAGE_CODE === 'identify-language') {
@@ -232,14 +240,11 @@ export const startTranscribe = async (callMetaData: ExotelCallMetaData, audioInp
             return;
         }
     } else {
-        (tsParams as StartStreamTranscriptionCommandInput).EnableChannelIdentification = true;
-        (tsParams as StartStreamTranscriptionCommandInput).NumberOfChannels = 2;
         try {
             const response = await transcribeClient.send(
                 new StartStreamTranscriptionCommand(tsParams as StartStreamTranscriptionCommandInput)
             );
             server.log.debug(`[TRANSCRIBING]: [${callMetaData.callId}] === Received Initial response from Transcribe. Session Id: ${response.SessionId} ===`);
-
             outputTranscriptStream = response.TranscriptResultStream;
         } catch (err) {
             server.log.error(`[TRANSCRIBING]: [${callMetaData.callId}] - Error in StartStreamTranscription: ${normalizeErrorForLogging(err)}`);
@@ -262,7 +267,7 @@ export const startTranscribe = async (callMetaData: ExotelCallMetaData, audioInp
                 
                 if (event.TranscriptEvent) {
                     const message: TranscriptEvent = event.TranscriptEvent;
-                    await writeTranscriptionSegment(message, callMetaData.callId, server);
+                    await processDiarizedTranscript(message, callMetaData.callId, server);
                 }
                 if (event.CategoryEvent && event.CategoryEvent.MatchedCategories) {
                     await writeAddCallCategoryEvent(event.CategoryEvent, callMetaData.callId, server);
@@ -279,8 +284,82 @@ export const startTranscribe = async (callMetaData: ExotelCallMetaData, audioInp
     }
 };
 
+// New function to process diarized transcripts
+const processDiarizedTranscript = async (event: TranscriptEvent, callId: string, server: FastifyInstance) => {
+    if (event.Transcript?.Results && event.Transcript.Results.length > 0) {
+        const result = event.Transcript.Results[0];
+        
+        if (result.IsPartial === undefined || (result.IsPartial === true && !savePartial)) {
+            return;
+        }
 
-export const writeTranscriptionSegment = async function(transcribeMessageJson:TranscriptEvent, callId: Uuid, server: FastifyInstance) {
+        if (result.Alternatives && result.Alternatives.length > 0) {
+            const alternative = result.Alternatives[0];
+            
+            // Process speaker labels
+            if (alternative.Items) {
+                let currentSpeaker = '';
+                let currentTranscript = '';
+                let startTime = result.StartTime;
+                
+                for (const item of alternative.Items) {
+                    if (item.Speaker && item.Speaker !== currentSpeaker) {
+                        // Send previous segment if exists
+                        if (currentTranscript) {
+                            await writeTranscriptionSegment({
+                                Transcript: {
+                                    Results: [{
+                                        StartTime: startTime,
+                                        EndTime: result.EndTime,
+                                        IsPartial: result.IsPartial,
+                                        Alternatives: [{
+                                            Transcript: currentTranscript,
+                                            Items: []
+                                        }]
+                                    }]
+                                }
+                            }, callId, server, currentSpeaker);
+                        }
+                        currentSpeaker = item.Speaker;
+                        currentTranscript = item.Content || '';
+                        startTime = item.StartTime;
+                    } else {
+                        currentTranscript += ' ' + (item.Content || '');
+                    }
+                }
+                
+                // Send final segment
+                if (currentTranscript) {
+                    await writeTranscriptionSegment({
+                        Transcript: {
+                            Results: [{
+                                StartTime: startTime,
+                                EndTime: result.EndTime,
+                                IsPartial: result.IsPartial,
+                                Alternatives: [{
+                                    Transcript: currentTranscript,
+                                    Items: []
+                                }]
+                            }]
+                        }
+                    }, callId, server, currentSpeaker);
+                }
+            }
+        }
+    }
+};
+// Helper function to map speaker IDs to channels
+const mapSpeakerToChannel = (speakerId: string): 'AGENT' | 'CALLER' => {
+    // Simple mapping - can be made more sophisticated
+    return speakerId === 'spk_0' ? 'AGENT' : 'CALLER';
+};
+
+export const writeTranscriptionSegment = async function(
+    transcribeMessageJson: TranscriptEvent, 
+    callId: Uuid, 
+    server: FastifyInstance,
+    speakerId?: string
+) {
     if (transcribeMessageJson.Transcript?.Results && transcribeMessageJson.Transcript?.Results.length > 0) {
         if (transcribeMessageJson.Transcript?.Results[0].Alternatives && transcribeMessageJson.Transcript?.Results[0].Alternatives?.length > 0) {
 
@@ -292,10 +371,11 @@ export const writeTranscriptionSegment = async function(transcribeMessageJson:Tr
             const { Transcript: transcript } = transcribeMessageJson.Transcript.Results[0].Alternatives[0];
             const now = new Date().toISOString();
 
-            const kdsObject:AddTranscriptSegmentEvent = {
+            const kdsObject: AddTranscriptSegmentEvent = {
                 EventType: 'ADD_TRANSCRIPT_SEGMENT',
                 CallId: callId,
-                Channel: (result.ChannelId ==='ch_0' ? 'CALLER' : 'AGENT'),
+                Channel: speakerId ? mapSpeakerToChannel(speakerId) : 'UNKNOWN',
+                SpeakerId: speakerId,
                 SegmentId: result.ResultId || '',
                 StartTime: result.StartTime || 0,
                 EndTime: result.EndTime || 0,

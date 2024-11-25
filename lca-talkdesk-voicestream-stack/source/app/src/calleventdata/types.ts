@@ -51,14 +51,26 @@ export type AddTranscriptSegmentEvent = CallEventBase<'ADD_TRANSCRIPT_SEGMENT'> 
     Transcript?: string,
     IsPartial?: boolean,
     Sentiment?: string,
+    SpeakerId?: string,  // Add speaker ID for diarization
+    SpeakerConfidence?: number, // Add confidence score
     TranscriptEvent?: TranscriptEvent,
     UtteranceEvent?: UtteranceEvent,
+};
+
+// Add new type for speaker information
+export type SpeakerProfile = {
+    speakerId: string,
+    role: 'AGENT' | 'CALLER',
+    confidenceScore: number,
+    totalSpeakingTime: number,
+    utteranceCount: number
 };
 
 export type AddCallCategoryEvent = CallEventBase<'ADD_CALL_CATEGORY'> & {
     CategoryEvent: CategoryEvent,
 };
 
+// Update CallMetaData to include diarization settings
 export type CallMetaData = {
     callId: Uuid,
     fromNumber?: string,
@@ -67,26 +79,67 @@ export type CallMetaData = {
     agentId?: string,
     samplingRate: number,
     callEvent: string,
+    enableSpeakerDiarization?: boolean,
+    maxSpeakers?: number,
+    minSpeakerConfidence?: number
 };
 
+// Simplify SocketCallData for mono channel
 export type SocketCallData = {
     callMetadata: CallMetaData,
-    audioInputStream?: stream.PassThrough,
+    audioInputStream: stream.PassThrough,
     writeRecordingStream?: WriteStream,
     recordingFileSize?: { filesize: number },
     startStreamTime: Date,
-    agentBlock: BlockStream2,
-    callerBlock: BlockStream2,
-    combinedStream: PassThrough,
-    combinedStreamBlock: BlockStream2,
+    // Remove dual channel specific properties
+    // agentBlock: BlockStream2,
+    // callerBlock: BlockStream2,
+    // combinedStream: PassThrough,
+    // combinedStreamBlock: BlockStream2,
     ended: boolean,
-}
+    speakerProfiles?: Map<string, SpeakerProfile> // Add speaker profiles
+};
+// Update ExotelCallMetaData
 export interface ExotelCallMetaData extends CallMetaData {
     customParameters?: {[key: string]: string};
     bitRate?: string;
     reason?: string;
+    // Add any Exotel-specific diarization settings if needed
+    exotelDiarizationConfig?: {
+        enableCustomMapping?: boolean;
+        speakerMapping?: Record<string, 'AGENT' | 'CALLER'>;
+    };
 }
-  
+
+// Update ExotelSocketCallData
 export interface ExotelSocketCallData extends SocketCallData {
     callMetadata: ExotelCallMetaData;
 }
+
+// Add new types for diarization results
+export type DiarizedSegment = {
+    speakerId: string;
+    role: 'AGENT' | 'CALLER';
+    transcript: string;
+    startTime: number;
+    endTime: number;
+    confidence: number;
+    isPartial: boolean;
+};
+
+// Add new type for audio stream configuration
+export type AudioStreamConfig = {
+    highWaterMark: number;
+    chunkSize: number;
+    samplingRate: number;
+    bytesPerSample: number;
+};
+
+// Add new type for stream metrics
+export type StreamMetrics = {
+    bufferLevel: number;
+    processedChunks: number;
+    totalBytesProcessed: number;
+    averageChunkSize: number;
+    lastProcessingTime: Date;
+};
