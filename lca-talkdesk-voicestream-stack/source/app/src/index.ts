@@ -241,8 +241,11 @@ const onStart = async (clientIP: string, ws: WebSocket, data: ExotelStartMessage
             });
 
 <<<<<<< HEAD
+<<<<<<< HEAD
             // Create socket call map with simplified structure
 =======
+=======
+>>>>>>> parent of c9ab88a (modified watermarks for monochannel)
             server.log.debug(`[ON START]: [${clientIP}][${data.start.call_sid}] - Created audio streams with highWaterMark: ${highWaterMarkSize}`);
 
             // Ensure proper piping
