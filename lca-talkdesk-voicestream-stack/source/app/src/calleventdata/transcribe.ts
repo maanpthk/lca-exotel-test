@@ -178,12 +178,12 @@ export const startTranscribe = async (callMetaData: ExotelCallMetaData, audioInp
 
     // Configure transcribe parameters for mono audio with diarization
     const tsParams: transcriptionCommandInput<typeof isTCAEnabled> = {
-     MediaSampleRateHertz: callMetaData.samplingRate || 8000,
-     MediaEncoding: 'pcm',
-     AudioStream: transcribeInput(),
-     LanguageCode: TRANSCRIBE_LANGUAGE_CODE as LanguageCode,
-     // Add diarization settings
-     ShowSpeakerLabel: ENABLE_SPEAKER_DIARIZATION
+        MediaSampleRateHertz: callMetaData.samplingRate || 8000,
+        MediaEncoding: 'pcm',
+        AudioStream: transcribeInput(),
+        LanguageCode: TRANSCRIBE_LANGUAGE_CODE as LanguageCode,
+        // Add diarization settings
+        ShowSpeakerLabel: ENABLE_SPEAKER_DIARIZATION
     };
 
 
