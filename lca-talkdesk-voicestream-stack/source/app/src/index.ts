@@ -239,7 +239,18 @@ const onStart = async (clientIP: string, ws: WebSocket, data: ExotelStartMessage
                 highWaterMark: highWaterMarkSize,
                 objectMode: false
             });
+            // Initialize recordingFileSize
+            const recordingFileSize = { filesize: 0 };
 
+            // Create socket call data with proper type
+            const socketData: ExotelSocketCallData = {
+                callMetadata: callMetaData,
+                audioInputStream,
+                writeRecordingStream,
+                recordingFileSize,
+                startStreamTime: new Date(),
+                ended: false
+            };
             // Set up error handler
             audioInputStream.on('error', (err: Error) => {
                 server.log.error(`[ON START]: [${clientIP}][${data.start.call_sid}] - Audio input stream error:`, err);
@@ -253,13 +264,13 @@ const onStart = async (clientIP: string, ws: WebSocket, data: ExotelStartMessage
                 }
             });
 
-            socketMap.set(ws, socketCallMap);
+            socketMap.set(ws, socketData);
 
             server.log.debug(`[ON START]: [${clientIP}][${data.start.call_sid}] - Writing call start event`);
             await writeCallStartEvent(callMetaData, server);
 
             server.log.debug(`[ON START]: [${clientIP}][${data.start.call_sid}] - Starting transcribe`);
-            await startTranscribe(callMetaData, audioInputStream, socketCallMap, server);
+            await startTranscribe(callMetaData, audioInputStream, socketData, server);
 
             server.log.info(`[ON START]: [${clientIP}][${data.start.call_sid}] - Successfully completed start setup`);
 
@@ -281,6 +292,7 @@ const onStart = async (clientIP: string, ws: WebSocket, data: ExotelStartMessage
     }
 };
 
+// Update onMedia to handle undefined recordingFileSize
 const onMedia = async (clientIP: string, ws: WebSocket, data: ExotelMediaMessage): Promise<void> => {
     const socketData = socketMap.get(ws) as ExotelSocketCallData;
     
@@ -289,7 +301,7 @@ const onMedia = async (clientIP: string, ws: WebSocket, data: ExotelMediaMessage
         callid = socketData.callMetadata.callId;
     }
 
-    if (socketData !== undefined && socketData.audioInputStream !== undefined) {
+    if (socketData?.audioInputStream) {
         try {
             // Decode base64 payload
             const pcmBuffer = Buffer.from(data.media.payload, 'base64');
@@ -300,7 +312,7 @@ const onMedia = async (clientIP: string, ws: WebSocket, data: ExotelMediaMessage
             socketData.audioInputStream.write(pcmBuffer);
 
             // Write to recording stream if enabled
-            if (socketData.writeRecordingStream) {
+            if (socketData.writeRecordingStream && socketData.recordingFileSize) {
                 socketData.writeRecordingStream.write(pcmBuffer);
                 socketData.recordingFileSize.filesize += pcmBuffer.length;
             }

@@ -183,8 +183,7 @@ export const startTranscribe = async (callMetaData: ExotelCallMetaData, audioInp
     AudioStream: transcribeInput(),
     LanguageCode: TRANSCRIBE_LANGUAGE_CODE as LanguageCode,
     // Add diarization settings
-    ShowSpeakerLabel: ENABLE_SPEAKER_DIARIZATION,
-    MaxSpeakers: MAX_SPEAKERS
+    ShowSpeakerLabel: ENABLE_SPEAKER_DIARIZATION
 };
 
 

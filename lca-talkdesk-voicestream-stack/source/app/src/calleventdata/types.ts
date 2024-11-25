@@ -91,7 +91,7 @@ export type SocketCallData = {
     callMetadata: CallMetaData,
     audioInputStream: stream.PassThrough,
     writeRecordingStream?: WriteStream,
-    recordingFileSize?: { filesize: number },
+    recordingFileSize: { filesize: number },
     startStreamTime: Date,
     // Remove dual channel specific properties
     // agentBlock: BlockStream2,
