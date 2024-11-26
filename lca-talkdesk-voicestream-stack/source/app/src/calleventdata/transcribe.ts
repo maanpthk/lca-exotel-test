@@ -467,10 +467,10 @@ export const writeAddTranscriptSegmentEvent = async function(
         if (role === 'CUSTOMER') {
             return 'CALLER';
         }
-        else {
-            return 'UNKNOWN';
-        }
+        
+        return 'UNKNOWN';
     };
+    
     const kdsObject: AddTranscriptSegmentEvent = {
         EventType: 'ADD_TRANSCRIPT_SEGMENT',
         CallId: callId,
