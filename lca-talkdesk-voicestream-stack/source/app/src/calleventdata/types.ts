@@ -12,7 +12,7 @@ import {
 // import BlockStream2 from 'block-stream2';
 
 export type Uuid = string;             // UUID as defined by RFC#4122
-
+export type SpeakerRole = 'AGENT' | 'CALLER' | 'UNKNOWN'; //speaker mapping trial
 export type EventType = 
     | 'START' // required
     | 'ADD_TRANSCRIPT_SEGMENT' // required 
@@ -45,7 +45,7 @@ export type CallRecordingEvent = CallEventBase<'ADD_S3_RECORDING_URL'> & {
 
 // Updated AddTranscriptSegmentEvent to include speaker diarization info
 export type AddTranscriptSegmentEvent = CallEventBase<'ADD_TRANSCRIPT_SEGMENT'> & {
-    Channel?: string,
+    Channel?: SpeakerRole,
     SegmentId?: string,
     StartTime?: number,
     EndTime?: number,

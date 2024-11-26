@@ -34,7 +34,8 @@ import {
     CallRecordingEvent,
     AddTranscriptSegmentEvent,
     AddCallCategoryEvent,
-    Uuid
+    Uuid,
+    SpeakerRole
 } from './types';
 import {
     normalizeErrorForLogging
@@ -154,7 +155,7 @@ export const startTranscribe = async (callMetaData: ExotelCallMetaData, audioInp
             // For Call Analytics, use single channel configuration
             const channel0: ChannelDefinition = { 
                 ChannelId: 0, 
-                // ParticipantRole: ParticipantRole.CUSTOMER 
+                ParticipantRole: ParticipantRole.CUSTOMER 
             };
             
             const configuration_event: ConfigurationEvent = { 
@@ -288,7 +289,7 @@ export const startTranscribe = async (callMetaData: ExotelCallMetaData, audioInp
     }
 };
 
-const detectSpeakerRoles = (transcript: string): 'AGENT' | 'CALLER' => {
+const detectSpeakerRoles = (transcript: string): SpeakerRole => {
     return AGENT_GREETING_PATTERNS.some(pattern => pattern.test(transcript)) ? 'AGENT' : 'CALLER';
 };
 
@@ -302,8 +303,8 @@ const processDiarizedTranscript = async (event: TranscriptEvent, callId: string,
         }
 
         // Static map for this call segment
-        const speakerRoleMap = new Map<string, 'AGENT' | 'CALLER'>();
-        let firstSpeakerRole: 'AGENT' | 'CALLER' | undefined;
+        const speakerRoleMap = new Map<string, SpeakerRole>();
+        const speakerRole = speakerRoleMap.get(currentSpeaker) || 'UNKNOWN';
 
         if (result.Alternatives && result.Alternatives.length > 0) {
             const alternative = result.Alternatives[0];
@@ -367,7 +368,10 @@ const processDiarizedTranscript = async (event: TranscriptEvent, callId: string,
                                 }]
                             }]
                         }
-                    }, callId, server, currentSpeaker, speakerRole);
+                    }, callId, 
+                    server, 
+                    currentSpeaker, 
+                    speakerRole as 'AGENT' | 'CALLER' // Cast to expected type);
                 }
             }
         }
@@ -383,7 +387,7 @@ export const writeTranscriptionSegment = async function(
     callId: Uuid, 
     server: FastifyInstance,
     speakerId?: string,
-    speakerRole?: 'AGENT' | 'CALLER' // Add this parameter
+    speakerRole?: SpeakerRole // Update this parameter type
 ) {
     if (transcribeMessageJson.Transcript?.Results && transcribeMessageJson.Transcript?.Results.length > 0) {
         if (transcribeMessageJson.Transcript?.Results[0].Alternatives && transcribeMessageJson.Transcript?.Results[0].Alternatives?.length > 0) {
