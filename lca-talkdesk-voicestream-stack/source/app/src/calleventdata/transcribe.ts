@@ -295,14 +295,20 @@ const detectSpeakerRoles = (transcript: string): SpeakerRole => {
 
 // New function to process diarized transcripts
 const processDiarizedTranscript = async (event: TranscriptEvent, callId: string, server: FastifyInstance) => {
-    if (!event.Transcript?.Results?.[0]) return;
+    if (!event.Transcript?.Results?.[0]) {
+        return;
+    }
     
     const result = event.Transcript.Results[0];
-    if (result.IsPartial === true && !savePartial) return;
+    if (result.IsPartial === true && !savePartial) {
+        return;
+    }
 
     const speakerRoleMap = new Map<string, SpeakerRole>();
     
-    if (!result.Alternatives?.[0]?.Items) return;
+    if (!result.Alternatives?.[0]?.Items) {
+        return;
+    }
     
     let currentSpeaker = '';
     let currentTranscript = '';
@@ -448,16 +454,22 @@ export const writeAddTranscriptSegmentEvent = async function(
         }
 
         // Add these lines to get channel and speaker information from utteranceEvent
-        const channel = utteranceEvent.ParticipantRole === 'AGENT' ? 'AGENT' : 'CALLER';
-        const speakerId = `spk_${utteranceEvent.ParticipantRole === 'AGENT' ? '0' : '1'}`;
+        // const channel = utteranceEvent.ParticipantRole === 'AGENT' ? 'AGENT' : 'CALLER';
+        // const speakerId = `spk_${utteranceEvent.ParticipantRole === 'AGENT' ? '0' : '1'}`;
     }
    
     const now = new Date().toISOString();
     // Convert ParticipantRole to SpeakerRole
     const mapParticipantRoleToSpeakerRole = (role?: ParticipantRole): SpeakerRole => {
-        if (role === 'AGENT') return 'AGENT';
-        if (role === 'CUSTOMER') return 'CALLER';
-        return 'UNKNOWN';
+        if (role === 'AGENT') {
+            return 'AGENT';
+        }
+        if (role === 'CUSTOMER') {
+            return 'CALLER';
+        }
+        else {
+            return 'UNKNOWN';
+        }
     };
     const kdsObject: AddTranscriptSegmentEvent = {
         EventType: 'ADD_TRANSCRIPT_SEGMENT',
