@@ -155,7 +155,7 @@ export const startTranscribe = async (callMetaData: ExotelCallMetaData, audioInp
             // For Call Analytics, use single channel configuration
             const channel0: ChannelDefinition = { 
                 ChannelId: 0, 
-                ParticipantRole: ParticipantRole.CUSTOMER 
+                ParticipantRole: ParticipantRole.CUSTOMER
             };
             
             const configuration_event: ConfigurationEvent = { 
@@ -294,87 +294,92 @@ const detectSpeakerRoles = (transcript: string): SpeakerRole => {
 };
 
 // New function to process diarized transcripts
+// At the top with other constants
+const AGENT_GREETING_PATTERNS = [
+    /thank you for calling/i,
+    /how may I help/i,
+    /how can I assist/i,
+    /this is .* speaking/i,
+    /welcome to/i,
+    /good (morning|afternoon|evening)/i,
+];
+
+const detectSpeakerRoles = (transcript: string): SpeakerRole => {
+    return AGENT_GREETING_PATTERNS.some(pattern => pattern.test(transcript)) ? 'AGENT' : 'CALLER';
+};
+
 const processDiarizedTranscript = async (event: TranscriptEvent, callId: string, server: FastifyInstance) => {
-    if (event.Transcript?.Results && event.Transcript.Results.length > 0) {
-        const result = event.Transcript.Results[0];
-        
-        if (result.IsPartial === undefined || (result.IsPartial === true && !savePartial)) {
-            return;
-        }
+    if (!event.Transcript?.Results?.[0]) return;
+    
+    const result = event.Transcript.Results[0];
+    if (result.IsPartial === true && !savePartial) return;
 
-        // Static map for this call segment
-        const speakerRoleMap = new Map<string, SpeakerRole>();
-        const speakerRole = speakerRoleMap.get(currentSpeaker) || 'UNKNOWN';
-
-        if (result.Alternatives && result.Alternatives.length > 0) {
-            const alternative = result.Alternatives[0];
-            
-            if (alternative.Items) {
-                let currentSpeaker = '';
-                let currentTranscript = '';
-                let startTime = result.StartTime;
-                
-                for (const item of alternative.Items) {
-                    if (item.Speaker && item.Speaker !== currentSpeaker) {
-                        // Process previous segment
-                        if (currentTranscript) {
-                            // Only try to detect role if we haven't determined it yet
-                            if (!speakerRoleMap.has(currentSpeaker) && currentTranscript.length > 20) {
-                                const detectedRole = detectSpeakerRoles(currentTranscript);
-                                speakerRoleMap.set(currentSpeaker, detectedRole);
-                                // Set the opposite role for the new speaker
-                                if (item.Speaker) {
-                                    speakerRoleMap.set(item.Speaker, detectedRole === 'AGENT' ? 'CALLER' : 'AGENT');
-                                }
-                            }
-
-                            const speakerRole = speakerRoleMap.get(currentSpeaker) || 'UNKNOWN';
-                            
-                            await writeTranscriptionSegment({
-                                Transcript: {
-                                    Results: [{
-                                        StartTime: startTime,
-                                        EndTime: result.EndTime,
-                                        IsPartial: result.IsPartial,
-                                        Alternatives: [{
-                                            Transcript: currentTranscript.trim(),
-                                            Items: []
-                                        }]
-                                    }]
-                                }
-                            }, callId, server, currentSpeaker, speakerRole);
-                        }
-                        
-                        currentSpeaker = item.Speaker;
-                        currentTranscript = item.Content || '';
-                        startTime = item.StartTime;
-                    } else {
-                        currentTranscript += ' ' + (item.Content || '');
+    const speakerRoleMap = new Map<string, SpeakerRole>();
+    
+    if (!result.Alternatives?.[0]?.Items) return;
+    
+    let currentSpeaker = '';
+    let currentTranscript = '';
+    let startTime = result.StartTime;
+    
+    for (const item of result.Alternatives[0].Items) {
+        if (item.Speaker && item.Speaker !== currentSpeaker) {
+            // Process previous segment if exists
+            if (currentTranscript) {
+                // Only try to detect role if we haven't determined it yet
+                if (!speakerRoleMap.has(currentSpeaker) && currentTranscript.length > 20) {
+                    const detectedRole = detectSpeakerRoles(currentTranscript);
+                    speakerRoleMap.set(currentSpeaker, detectedRole);
+                    // Set the opposite role for the new speaker
+                    if (item.Speaker) {
+                        speakerRoleMap.set(
+                            item.Speaker, 
+                            detectedRole === 'AGENT' ? 'CALLER' : 'AGENT'
+                        );
                     }
                 }
+
+                const speakerRole = speakerRoleMap.get(currentSpeaker) || 'UNKNOWN';
                 
-                // Handle final segment
-                if (currentTranscript) {
-                    const speakerRole = speakerRoleMap.get(currentSpeaker) || 'UNKNOWN';
-                    await writeTranscriptionSegment({
-                        Transcript: {
-                            Results: [{
-                                StartTime: startTime,
-                                EndTime: result.EndTime,
-                                IsPartial: result.IsPartial,
-                                Alternatives: [{
-                                    Transcript: currentTranscript.trim(),
-                                    Items: []
-                                }]
+                await writeTranscriptionSegment({
+                    Transcript: {
+                        Results: [{
+                            StartTime: startTime,
+                            EndTime: result.EndTime,
+                            IsPartial: result.IsPartial,
+                            Alternatives: [{
+                                Transcript: currentTranscript.trim(),
+                                Items: []
                             }]
-                        }
-                    }, callId, 
-                    server, 
-                    currentSpeaker, 
-                    speakerRole as 'AGENT' | 'CALLER' // Cast to expected type);
-                }
+                        }]
+                    }
+                }, callId, server, currentSpeaker, speakerRole);
             }
+            
+            currentSpeaker = item.Speaker;
+            currentTranscript = item.Content || '';
+            startTime = item.StartTime;
+        } else {
+            currentTranscript += ' ' + (item.Content || '');
         }
+    }
+    
+    // Handle final segment
+    if (currentTranscript && currentSpeaker) {
+        const speakerRole = speakerRoleMap.get(currentSpeaker) || 'UNKNOWN';
+        await writeTranscriptionSegment({
+            Transcript: {
+                Results: [{
+                    StartTime: startTime,
+                    EndTime: result.EndTime,
+                    IsPartial: result.IsPartial,
+                    Alternatives: [{
+                        Transcript: currentTranscript.trim(),
+                        Items: []
+                    }]
+                }]
+            }
+        }, callId, server, currentSpeaker, speakerRole);
     }
 };
 // Helper function to map speaker IDs to channels
@@ -387,11 +392,10 @@ export const writeTranscriptionSegment = async function(
     callId: Uuid, 
     server: FastifyInstance,
     speakerId?: string,
-    speakerRole?: SpeakerRole // Update this parameter type
+    speakerRole?: SpeakerRole
 ) {
     if (transcribeMessageJson.Transcript?.Results && transcribeMessageJson.Transcript?.Results.length > 0) {
         if (transcribeMessageJson.Transcript?.Results[0].Alternatives && transcribeMessageJson.Transcript?.Results[0].Alternatives?.length > 0) {
-
             const result = transcribeMessageJson.Transcript?.Results[0];
 
             if (result.IsPartial == undefined || (result.IsPartial == true && !savePartial)) {
@@ -403,7 +407,7 @@ export const writeTranscriptionSegment = async function(
             const kdsObject: AddTranscriptSegmentEvent = {
                 EventType: 'ADD_TRANSCRIPT_SEGMENT',
                 CallId: callId,
-                Channel: speakerRole || 'UNKNOWN', // Use the detected role instead of mapSpeakerToChannel
+                Channel: speakerRole || 'UNKNOWN',
                 SpeakerId: speakerId,
                 SegmentId: result.ResultId || '',
                 StartTime: result.StartTime || 0,
@@ -434,8 +438,12 @@ export const writeTranscriptionSegment = async function(
     } 
 };
 
-export const writeAddTranscriptSegmentEvent = async function(utteranceEvent:UtteranceEvent | undefined , 
-    transcriptEvent:TranscriptEvent | undefined,  callId: Uuid, server: FastifyInstance) {
+export const writeAddTranscriptSegmentEvent = async function(
+    utteranceEvent: UtteranceEvent | undefined, 
+    transcriptEvent: TranscriptEvent | undefined,  
+    callId: Uuid, 
+    server: FastifyInstance
+) {
     
     if (transcriptEvent) {
         if (transcriptEvent.Transcript?.Results && transcriptEvent.Transcript?.Results.length > 0) {
@@ -459,12 +467,16 @@ export const writeAddTranscriptSegmentEvent = async function(utteranceEvent:Utte
     }
    
     const now = new Date().toISOString();
-
-    const kdsObject:AddTranscriptSegmentEvent = {
+    // Convert ParticipantRole to SpeakerRole
+    const mapParticipantRoleToSpeakerRole = (role?: ParticipantRole): SpeakerRole => {
+        if (role === 'AGENT') return 'AGENT';
+        if (role === 'CUSTOMER') return 'CALLER';
+        return 'UNKNOWN';
+    };
+    const kdsObject: AddTranscriptSegmentEvent = {
         EventType: 'ADD_TRANSCRIPT_SEGMENT',
         CallId: callId,
-        // Add the channel and speakerId information
-        Channel: utteranceEvent?.ParticipantRole || 'UNKNOWN',
+        Channel: mapParticipantRoleToSpeakerRole(utteranceEvent?.ParticipantRole),
         SpeakerId: utteranceEvent ? `spk_${utteranceEvent.ParticipantRole === 'AGENT' ? '0' : '1'}` : '',
         SegmentId: utteranceEvent?.UtteranceId || '',
         TranscriptEvent: transcriptEvent,
