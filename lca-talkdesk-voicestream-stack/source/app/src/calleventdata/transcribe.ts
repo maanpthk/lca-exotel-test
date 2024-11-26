@@ -294,20 +294,6 @@ const detectSpeakerRoles = (transcript: string): SpeakerRole => {
 };
 
 // New function to process diarized transcripts
-// At the top with other constants
-const AGENT_GREETING_PATTERNS = [
-    /thank you for calling/i,
-    /how may I help/i,
-    /how can I assist/i,
-    /this is .* speaking/i,
-    /welcome to/i,
-    /good (morning|afternoon|evening)/i,
-];
-
-const detectSpeakerRoles = (transcript: string): SpeakerRole => {
-    return AGENT_GREETING_PATTERNS.some(pattern => pattern.test(transcript)) ? 'AGENT' : 'CALLER';
-};
-
 const processDiarizedTranscript = async (event: TranscriptEvent, callId: string, server: FastifyInstance) => {
     if (!event.Transcript?.Results?.[0]) return;
     
