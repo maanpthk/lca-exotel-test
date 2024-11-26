@@ -43,7 +43,7 @@ export type CallRecordingEvent = CallEventBase<'ADD_S3_RECORDING_URL'> & {
     RecordingUrl: string,
 };
 
-// Update AddTranscriptSegmentEvent to include speaker diarization info
+// Updated AddTranscriptSegmentEvent to include speaker diarization info
 export type AddTranscriptSegmentEvent = CallEventBase<'ADD_TRANSCRIPT_SEGMENT'> & {
     Channel?: string,
     SegmentId?: string,
@@ -58,7 +58,7 @@ export type AddTranscriptSegmentEvent = CallEventBase<'ADD_TRANSCRIPT_SEGMENT'> 
     UtteranceEvent?: UtteranceEvent,
 };
 
-// Add new type for speaker information
+// Added new type for speaker information
 export type SpeakerProfile = {
     speakerId: string,
     role: 'AGENT' | 'CALLER',
@@ -72,7 +72,7 @@ export type AddCallCategoryEvent = CallEventBase<'ADD_CALL_CATEGORY'> & {
     CategoryEvent: CategoryEvent,
 };
 
-// Update CallMetaData to include diarization settings
+// Updated CallMetaData to include diarization settings
 export type CallMetaData = {
     callId: Uuid,
     fromNumber?: string,
@@ -86,7 +86,7 @@ export type CallMetaData = {
     minSpeakerConfidence?: number
 };
 
-// Simplify SocketCallData for mono channel
+// Simplified SocketCallData for mono channel
 export type SocketCallData = {
     callMetadata: CallMetaData,
     audioInputStream: stream.PassThrough,
@@ -102,7 +102,7 @@ export type SocketCallData = {
     speakerProfiles?: Map<string, SpeakerProfile> // Add speaker profiles
 };
 
-// Update ExotelCallMetaData
+// Updated ExotelCallMetaData
 export interface ExotelCallMetaData extends CallMetaData {
     customParameters?: {[key: string]: string};
     bitRate?: string;
@@ -114,12 +114,12 @@ export interface ExotelCallMetaData extends CallMetaData {
     };
 }
   
-// Update ExotelSocketCallData
+// Updated ExotelSocketCallData
 export interface ExotelSocketCallData extends SocketCallData {
     callMetadata: ExotelCallMetaData;
 }
 
-// Add new types for diarization results
+// Added new types for diarization results
 export type DiarizedSegment = {
     speakerId: string;
     role: 'AGENT' | 'CALLER';
@@ -130,7 +130,7 @@ export type DiarizedSegment = {
     isPartial: boolean;
 };
 
-// Add new type for audio stream configuration
+// Added new type for audio stream configuration
 export type AudioStreamConfig = {
     highWaterMark: number;
     chunkSize: number;
@@ -138,7 +138,7 @@ export type AudioStreamConfig = {
     bytesPerSample: number;
 };
 
-// Add new type for stream metrics
+// Added new type for stream metrics
 export type StreamMetrics = {
     bufferLevel: number;
     processedChunks: number;
@@ -146,3 +146,10 @@ export type StreamMetrics = {
     averageChunkSize: number;
     lastProcessingTime: Date;
 };
+
+//Trying mapping
+export interface SpeakerMapping {
+    callId: string;
+    speakerRoleMap: Map<string, 'AGENT' | 'CALLER'>;
+    firstSpeakerRole?: 'AGENT' | 'CALLER';
+}

@@ -90,7 +90,15 @@ type transcriptionCommandInput<TCAEnabled> = TCAEnabled extends true
 
 const kinesisClient = new KinesisClient({ region: AWS_REGION });
 const transcribeClient = new TranscribeStreamingClient({ region: AWS_REGION });
-
+const AGENT_GREETING_PATTERNS = [
+    /thank you for calling/i,
+    /how may I help/i,
+    /how can I assist/i,
+    /this is .* speaking/i,
+    /welcome to/i,
+    /good (morning|afternoon|evening)/i,
+    // Add more patterns specific to your agents
+];
 export const writeCallEvent = async (callEvent: CallStartEvent | CallEndEvent | CallRecordingEvent, server: FastifyInstance) => {
     
     const putParams = {
@@ -146,7 +154,7 @@ export const startTranscribe = async (callMetaData: ExotelCallMetaData, audioInp
             // For Call Analytics, use single channel configuration
             const channel0: ChannelDefinition = { 
                 ChannelId: 0, 
-                ParticipantRole: ParticipantRole.CUSTOMER 
+                // ParticipantRole: ParticipantRole.CUSTOMER 
             };
             
             const configuration_event: ConfigurationEvent = { 
@@ -182,7 +190,6 @@ export const startTranscribe = async (callMetaData: ExotelCallMetaData, audioInp
         MediaEncoding: 'pcm',
         AudioStream: transcribeInput(),
         LanguageCode: TRANSCRIBE_LANGUAGE_CODE as LanguageCode,
-        // Add diarization settings
         ShowSpeakerLabel: ENABLE_SPEAKER_DIARIZATION
     };
 
@@ -281,6 +288,10 @@ export const startTranscribe = async (callMetaData: ExotelCallMetaData, audioInp
     }
 };
 
+const detectSpeakerRoles = (transcript: string): 'AGENT' | 'CALLER' => {
+    return AGENT_GREETING_PATTERNS.some(pattern => pattern.test(transcript)) ? 'AGENT' : 'CALLER';
+};
+
 // New function to process diarized transcripts
 const processDiarizedTranscript = async (event: TranscriptEvent, callId: string, server: FastifyInstance) => {
     if (event.Transcript?.Results && event.Transcript.Results.length > 0) {
@@ -290,10 +301,13 @@ const processDiarizedTranscript = async (event: TranscriptEvent, callId: string,
             return;
         }
 
+        // Static map for this call segment
+        const speakerRoleMap = new Map<string, 'AGENT' | 'CALLER'>();
+        let firstSpeakerRole: 'AGENT' | 'CALLER' | undefined;
+
         if (result.Alternatives && result.Alternatives.length > 0) {
             const alternative = result.Alternatives[0];
             
-            // Process speaker labels
             if (alternative.Items) {
                 let currentSpeaker = '';
                 let currentTranscript = '';
@@ -301,8 +315,20 @@ const processDiarizedTranscript = async (event: TranscriptEvent, callId: string,
                 
                 for (const item of alternative.Items) {
                     if (item.Speaker && item.Speaker !== currentSpeaker) {
-                        // Send previous segment if exists
+                        // Process previous segment
                         if (currentTranscript) {
+                            // Only try to detect role if we haven't determined it yet
+                            if (!speakerRoleMap.has(currentSpeaker) && currentTranscript.length > 20) {
+                                const detectedRole = detectSpeakerRoles(currentTranscript);
+                                speakerRoleMap.set(currentSpeaker, detectedRole);
+                                // Set the opposite role for the new speaker
+                                if (item.Speaker) {
+                                    speakerRoleMap.set(item.Speaker, detectedRole === 'AGENT' ? 'CALLER' : 'AGENT');
+                                }
+                            }
+
+                            const speakerRole = speakerRoleMap.get(currentSpeaker) || 'UNKNOWN';
+                            
                             await writeTranscriptionSegment({
                                 Transcript: {
                                     Results: [{
@@ -310,13 +336,14 @@ const processDiarizedTranscript = async (event: TranscriptEvent, callId: string,
                                         EndTime: result.EndTime,
                                         IsPartial: result.IsPartial,
                                         Alternatives: [{
-                                            Transcript: currentTranscript,
+                                            Transcript: currentTranscript.trim(),
                                             Items: []
                                         }]
                                     }]
                                 }
-                            }, callId, server, currentSpeaker);
+                            }, callId, server, currentSpeaker, speakerRole);
                         }
+                        
                         currentSpeaker = item.Speaker;
                         currentTranscript = item.Content || '';
                         startTime = item.StartTime;
@@ -325,8 +352,9 @@ const processDiarizedTranscript = async (event: TranscriptEvent, callId: string,
                     }
                 }
                 
-                // Send final segment
+                // Handle final segment
                 if (currentTranscript) {
+                    const speakerRole = speakerRoleMap.get(currentSpeaker) || 'UNKNOWN';
                     await writeTranscriptionSegment({
                         Transcript: {
                             Results: [{
@@ -334,28 +362,28 @@ const processDiarizedTranscript = async (event: TranscriptEvent, callId: string,
                                 EndTime: result.EndTime,
                                 IsPartial: result.IsPartial,
                                 Alternatives: [{
-                                    Transcript: currentTranscript,
+                                    Transcript: currentTranscript.trim(),
                                     Items: []
                                 }]
                             }]
                         }
-                    }, callId, server, currentSpeaker);
+                    }, callId, server, currentSpeaker, speakerRole);
                 }
             }
         }
     }
 };
 // Helper function to map speaker IDs to channels
-const mapSpeakerToChannel = (speakerId: string): 'AGENT' | 'CALLER' => {
-    // Simple mapping - can be made more sophisticated
-    return speakerId === 'spk_0' ? 'AGENT' : 'CALLER';
-};
+// const mapSpeakerToChannel = (speakerId: string): 'AGENT' | 'CALLER' => {
+//     return speakerId === 'spk_0' ? 'AGENT' : 'CALLER';
+// };
 
 export const writeTranscriptionSegment = async function(
     transcribeMessageJson: TranscriptEvent, 
     callId: Uuid, 
     server: FastifyInstance,
-    speakerId?: string
+    speakerId?: string,
+    speakerRole?: 'AGENT' | 'CALLER' // Add this parameter
 ) {
     if (transcribeMessageJson.Transcript?.Results && transcribeMessageJson.Transcript?.Results.length > 0) {
         if (transcribeMessageJson.Transcript?.Results[0].Alternatives && transcribeMessageJson.Transcript?.Results[0].Alternatives?.length > 0) {
@@ -371,7 +399,7 @@ export const writeTranscriptionSegment = async function(
             const kdsObject: AddTranscriptSegmentEvent = {
                 EventType: 'ADD_TRANSCRIPT_SEGMENT',
                 CallId: callId,
-                Channel: speakerId ? mapSpeakerToChannel(speakerId) : 'UNKNOWN',
+                Channel: speakerRole || 'UNKNOWN', // Use the detected role instead of mapSpeakerToChannel
                 SpeakerId: speakerId,
                 SegmentId: result.ResultId || '',
                 StartTime: result.StartTime || 0,
@@ -408,7 +436,6 @@ export const writeAddTranscriptSegmentEvent = async function(utteranceEvent:Utte
     if (transcriptEvent) {
         if (transcriptEvent.Transcript?.Results && transcriptEvent.Transcript?.Results.length > 0) {
             if (transcriptEvent.Transcript?.Results[0].Alternatives && transcriptEvent.Transcript?.Results[0].Alternatives?.length > 0) {
-            
                 const result = transcriptEvent.Transcript?.Results[0];
                 if (result.IsPartial == undefined || (result.IsPartial == true && !savePartial)) {
                     return;
@@ -421,6 +448,10 @@ export const writeAddTranscriptSegmentEvent = async function(utteranceEvent:Utte
         if (utteranceEvent.IsPartial == undefined || (utteranceEvent.IsPartial == true && !savePartial)) {
             return;
         }
+
+        // Add these lines to get channel and speaker information from utteranceEvent
+        const channel = utteranceEvent.ParticipantRole === 'AGENT' ? 'AGENT' : 'CALLER';
+        const speakerId = `spk_${utteranceEvent.ParticipantRole === 'AGENT' ? '0' : '1'}`;
     }
    
     const now = new Date().toISOString();
@@ -428,6 +459,10 @@ export const writeAddTranscriptSegmentEvent = async function(utteranceEvent:Utte
     const kdsObject:AddTranscriptSegmentEvent = {
         EventType: 'ADD_TRANSCRIPT_SEGMENT',
         CallId: callId,
+        // Add the channel and speakerId information
+        Channel: utteranceEvent?.ParticipantRole || 'UNKNOWN',
+        SpeakerId: utteranceEvent ? `spk_${utteranceEvent.ParticipantRole === 'AGENT' ? '0' : '1'}` : '',
+        SegmentId: utteranceEvent?.UtteranceId || '',
         TranscriptEvent: transcriptEvent,
         UtteranceEvent: utteranceEvent,
         CreatedAt: now,
