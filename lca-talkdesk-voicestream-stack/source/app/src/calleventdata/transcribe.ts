@@ -302,7 +302,6 @@ const detectSpeakerRoles = (transcript: string): SpeakerRole => {
 };
 
 // New function to process diarized transcripts
-// In processDiarizedTranscript function, add these logging points:
 
 const processDiarizedTranscript = async (event: TranscriptEvent, callId: string, server: FastifyInstance) => {
     server.log.debug(`[DIARIZATION]: [${callId}] Processing new transcript event`);
@@ -318,91 +317,90 @@ const processDiarizedTranscript = async (event: TranscriptEvent, callId: string,
         return;
     }
 
-    const speakerRoleMap = new Map<string, SpeakerRole>();
-    server.log.debug(`[DIARIZATION]: [${callId}] Created new speaker role map`);
+    // Static map to maintain speaker roles across function calls
+    static const speakerRoleMap = new Map<string, SpeakerRole>();
     
     if (!result.Alternatives?.[0]?.Items) {
         server.log.debug(`[DIARIZATION]: [${callId}] No items in transcript alternatives`);
         return;
     }
+
+    // Initialize speaker roles if not already set
+    if (speakerRoleMap.size === 0) {
+        const firstSegmentItems = result.Alternatives[0].Items.filter(item => item.Speaker === '0');
+        const firstSegmentTranscript = firstSegmentItems.map(item => item.Content).join(' ');
+        
+        const isFirstSpeakerAgent = AGENT_GREETING_PATTERNS.some(pattern => pattern.test(firstSegmentTranscript));
+        
+        speakerRoleMap.set('0', isFirstSpeakerAgent ? 'AGENT' : 'CALLER');
+        speakerRoleMap.set('1', isFirstSpeakerAgent ? 'CALLER' : 'AGENT');
+        
+        server.log.info(`[DIARIZATION]: [${callId}] Initial speaker role mapping set - Speaker 0: ${speakerRoleMap.get('0')}, Speaker 1: ${speakerRoleMap.get('1')}`);
+    }
+
+    // Collect all segments first
+    const segments: Array<{
+        speaker: string,
+        transcript: string,
+        startTime: number,
+        endTime: number
+    }> = [];
     
     let currentSpeaker = '';
     let currentTranscript = '';
     let startTime = result.StartTime;
     
+    // Process all items and collect segments
     for (const item of result.Alternatives[0].Items) {
         if (item.Speaker && item.Speaker !== currentSpeaker) {
-            server.log.debug(`[DIARIZATION]: [${callId}] Speaker change detected from "${currentSpeaker}" to "${item.Speaker}"`);
-            
-            // Process previous segment if exists
+            // Add previous segment if exists
             if (currentTranscript) {
-                server.log.debug(`[DIARIZATION]: [${callId}] Processing segment for speaker "${currentSpeaker}": "${currentTranscript}"`);
-                
-                // Only try to detect role if we haven't determined it yet
-                if (!speakerRoleMap.has(currentSpeaker) && currentTranscript.length > 20) {
-                    const detectedRole = detectSpeakerRoles(currentTranscript);
-                    speakerRoleMap.set(currentSpeaker, detectedRole);
-                    server.log.debug(`[DIARIZATION]: [${callId}] Detected role for speaker "${currentSpeaker}": ${detectedRole}`);
-                    
-                    // Set the opposite role for the new speaker
-                    if (item.Speaker) {
-                        const oppositeRole = detectedRole === 'AGENT' ? 'CALLER' : 'AGENT';
-                        speakerRoleMap.set(item.Speaker, oppositeRole);
-                        server.log.debug(`[DIARIZATION]: [${callId}] Setting opposite role for speaker "${item.Speaker}": ${oppositeRole}`);
-                    }
-                }
-
-                const speakerRole = speakerRoleMap.get(currentSpeaker) || 'UNKNOWN';
-                server.log.debug(`[DIARIZATION]: [${callId}] Final role mapping - Speaker: "${currentSpeaker}", Role: ${speakerRole}`);
-                
-                await writeTranscriptionSegment({
-                    Transcript: {
-                        Results: [{
-                            StartTime: startTime,
-                            EndTime: result.EndTime,
-                            IsPartial: result.IsPartial,
-                            Alternatives: [{
-                                Transcript: currentTranscript.trim(),
-                                Items: []
-                            }]
-                        }]
-                    }
-                }, callId, server, currentSpeaker, speakerRole);
+                segments.push({
+                    speaker: currentSpeaker,
+                    transcript: currentTranscript.trim(),
+                    startTime: startTime,
+                    endTime: Number(item.StartTime)
+                });
             }
             
             currentSpeaker = item.Speaker;
             currentTranscript = item.Content || '';
-            startTime = item.StartTime;
-            server.log.debug(`[DIARIZATION]: [${callId}] Started new segment for speaker "${currentSpeaker}"`);
+            startTime = Number(item.StartTime);
         } else {
             currentTranscript += ' ' + (item.Content || '');
         }
     }
     
-    // Handle final segment
+    // Add final segment
     if (currentTranscript && currentSpeaker) {
-        const speakerRole = speakerRoleMap.get(currentSpeaker) || 'UNKNOWN';
-        server.log.debug(`[DIARIZATION]: [${callId}] Processing final segment - Speaker: "${currentSpeaker}", Role: ${speakerRole}, Transcript: "${currentTranscript.trim()}"`);
+        segments.push({
+            speaker: currentSpeaker,
+            transcript: currentTranscript.trim(),
+            startTime: startTime,
+            endTime: result.EndTime || 0
+        });
+    }
+
+    // Write all segments to KDS
+    for (const segment of segments) {
+        const speakerRole = speakerRoleMap.get(segment.speaker) || 'UNKNOWN';
         
         await writeTranscriptionSegment({
             Transcript: {
                 Results: [{
-                    StartTime: startTime,
-                    EndTime: result.EndTime,
+                    StartTime: segment.startTime,
+                    EndTime: segment.endTime,
                     IsPartial: result.IsPartial,
                     Alternatives: [{
-                        Transcript: currentTranscript.trim(),
+                        Transcript: segment.transcript,
                         Items: []
                     }]
                 }]
             }
-        }, callId, server, currentSpeaker, speakerRole);
+        }, callId, server, segment.speaker, speakerRole);
     }
 
-    // Log final speaker role mappings
-    server.log.info(`[DIARIZATION]: [${callId}] Final speaker role mappings: ${[...speakerRoleMap.entries()]
-        .map(([speaker, role]) => `${speaker}: ${role}`)
-        .join(', ')}`);
+    server.log.debug(`[DIARIZATION]: [${callId}] Processed ${segments.length} segments`);
 };
 
 
