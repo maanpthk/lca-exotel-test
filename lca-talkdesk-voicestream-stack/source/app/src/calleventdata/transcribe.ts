@@ -291,16 +291,16 @@ export const startTranscribe = async (callMetaData: ExotelCallMetaData, audioInp
     }
 };
 
-const detectSpeakerRoles = (transcript: string): SpeakerRole => {
-    const matchedPattern = AGENT_GREETING_PATTERNS.find(pattern => pattern.test(transcript));
-    const role = matchedPattern ? 'AGENT' : 'CALLER';
+// const detectSpeakerRoles = (transcript: string): SpeakerRole => {
+//     const matchedPattern = AGENT_GREETING_PATTERNS.find(pattern => pattern.test(transcript));
+//     const role = matchedPattern ? 'AGENT' : 'CALLER';
     
-    console.log(`[ROLE DETECTION] Transcript: "${transcript}"`);
-    console.log(`[ROLE DETECTION] Matched pattern: ${matchedPattern ? matchedPattern.toString() : 'none'}`);
-    console.log(`[ROLE DETECTION] Assigned role: ${role}`);
+//     console.log(`[ROLE DETECTION] Transcript: "${transcript}"`);
+//     console.log(`[ROLE DETECTION] Matched pattern: ${matchedPattern ? matchedPattern.toString() : 'none'}`);
+//     console.log(`[ROLE DETECTION] Assigned role: ${role}`);
     
-    return role;
-};
+//     return role;
+// };
 
 // New function to process diarized transcripts
 
