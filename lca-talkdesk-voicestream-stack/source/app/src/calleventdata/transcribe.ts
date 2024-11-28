@@ -101,6 +101,7 @@ const AGENT_GREETING_PATTERNS = [
     /good (morning|afternoon|evening)/i,
     /thanks for calling/i,
 ];
+const speakerRoleMap = new Map<string, SpeakerRole>();
 export const writeCallEvent = async (callEvent: CallStartEvent | CallEndEvent | CallRecordingEvent, server: FastifyInstance) => {
     
     const putParams = {
@@ -316,9 +317,6 @@ const processDiarizedTranscript = async (event: TranscriptEvent, callId: string,
         server.log.debug(`[DIARIZATION]: [${callId}] Skipping partial result`);
         return;
     }
-
-    // Static map to maintain speaker roles across function calls
-    static const speakerRoleMap = new Map<string, SpeakerRole>();
     
     if (!result.Alternatives?.[0]?.Items) {
         server.log.debug(`[DIARIZATION]: [${callId}] No items in transcript alternatives`);
@@ -348,7 +346,7 @@ const processDiarizedTranscript = async (event: TranscriptEvent, callId: string,
     
     let currentSpeaker = '';
     let currentTranscript = '';
-    let startTime = result.StartTime;
+    let startTime = result.StartTime || 0;  // Default to 0 if undefined
     
     // Process all items and collect segments
     for (const item of result.Alternatives[0].Items) {
@@ -359,13 +357,13 @@ const processDiarizedTranscript = async (event: TranscriptEvent, callId: string,
                     speaker: currentSpeaker,
                     transcript: currentTranscript.trim(),
                     startTime: startTime,
-                    endTime: Number(item.StartTime)
+                    endTime: Number(item.StartTime || startTime)  // Use startTime as fallback
                 });
             }
             
             currentSpeaker = item.Speaker;
             currentTranscript = item.Content || '';
-            startTime = Number(item.StartTime);
+            startTime = Number(item.StartTime || 0);  // Default to 0 if undefined
         } else {
             currentTranscript += ' ' + (item.Content || '');
         }
@@ -377,7 +375,7 @@ const processDiarizedTranscript = async (event: TranscriptEvent, callId: string,
             speaker: currentSpeaker,
             transcript: currentTranscript.trim(),
             startTime: startTime,
-            endTime: result.EndTime || 0
+            endTime: Number(result.EndTime || startTime)  // Use startTime as fallback
         });
     }
 
