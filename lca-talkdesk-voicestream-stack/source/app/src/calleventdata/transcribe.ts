@@ -294,9 +294,9 @@ const detectSpeakerRoles = (transcript: string): SpeakerRole => {
     const matchedPattern = AGENT_GREETING_PATTERNS.find(pattern => pattern.test(transcript));
     const role = matchedPattern ? 'AGENT' : 'CALLER';
     
-    server.log.debug(`[ROLE DETECTION] Transcript: "${transcript}"`);
-    server.log.debug(`[ROLE DETECTION] Matched pattern: ${matchedPattern ? matchedPattern.toString() : 'none'}`);
-    server.log.debug(`[ROLE DETECTION] Assigned role: ${role}`);
+    console.log(`[ROLE DETECTION] Transcript: "${transcript}"`);
+    console.log(`[ROLE DETECTION] Matched pattern: ${matchedPattern ? matchedPattern.toString() : 'none'}`);
+    console.log(`[ROLE DETECTION] Assigned role: ${role}`);
     
     return role;
 };
