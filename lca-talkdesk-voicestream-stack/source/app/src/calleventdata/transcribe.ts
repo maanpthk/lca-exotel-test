@@ -482,7 +482,7 @@ export const writeAddTranscriptSegmentEvent = async function(
             return;
         }
 
-        // Add these lines to get channel and speaker information from utteranceEvent
+        // trying speaker information from utteranceEvent
         // const channel = utteranceEvent.ParticipantRole === 'AGENT' ? 'AGENT' : 'CALLER';
         // const speakerId = `spk_${utteranceEvent.ParticipantRole === 'AGENT' ? '0' : '1'}`;
     }
